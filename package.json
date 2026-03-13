@@ -1,0 +1,22 @@
+{
+  "name": "pokemon-world",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Pokemon Battle World Agent for DAP network — Gen 1 random battles powered by @pkmn/sim",
+  "main": "server.mjs",
+  "scripts": {
+    "start": "node server.mjs"
+  },
+  "dependencies": {
+    "@pkmn/data": "^0.10.7",
+    "@pkmn/randoms": "^0.10.7",
+    "@pkmn/sim": "^0.10.7",
+    "fastify": "^5.0.0",
+    "tweetnacl": "^1.0.3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ReScienceLab/pokemon-world"
+  }
+}
