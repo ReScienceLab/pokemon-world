@@ -5,86 +5,97 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Pokemon Battle Arena — DAP World</title>
   <link rel="stylesheet" href="/style.css">
-  <script src="https://unpkg.com/@pkmn/img"></script>
+  <link rel="preconnect" href="https://play.pokemonshowdown.com">
 </head>
 <body>
 <div id="app">
   <header>
-    <div id="status-dot"></div>
-    <h1>Pokemon Battle Arena</h1>
-    <span id="status-text">not connected</span>
+    <div class="header-left">
+      <img src="https://play.pokemonshowdown.com/sprites/pokemonicons-sheet.png" class="header-icon" alt="">
+      <h1>Pokemon Battle Arena</h1>
+    </div>
+    <div class="header-right">
+      <span id="status-badge" class="badge offline">OFFLINE</span>
+      <span id="battle-id" class="meta"></span>
+    </div>
   </header>
 
-  <main>
-    <!-- Left: info panel -->
-    <div id="info-panel">
-      <div id="manifest-section">
-        <h2>World Rules</h2>
-        <div id="manifest-content"></div>
+  <div class="layout">
+    <aside id="sidebar">
+      <div class="panel" id="rules-panel">
+        <div class="panel-header">WORLD RULES</div>
+        <div class="panel-body" id="manifest-content">
+          <p class="dim">Connecting...</p>
+        </div>
       </div>
-      <div id="team-section">
-        <h2>Your Team</h2>
-        <div id="team-list"></div>
+      <div class="panel" id="team-panel">
+        <div class="panel-header">YOUR TEAM</div>
+        <div class="panel-body" id="team-list"></div>
       </div>
-    </div>
+    </aside>
 
-    <!-- Center: battle arena -->
-    <div id="battle-area">
-      <!-- Opponent side (top) -->
-      <div id="opponent-side" class="battle-side">
-        <div class="pokemon-status-row">
+    <main id="battle-main">
+      <!-- Opponent Pokemon -->
+      <div class="pokemon-bar opponent-bar">
+        <div class="bar-info">
           <span class="poke-name" id="opp-name">???</span>
-          <span class="poke-level" id="opp-level"></span>
+          <span class="poke-status" id="opp-status"></span>
         </div>
-        <div class="hp-bar-wrap"><div class="hp-bar" id="opp-hp-bar"></div></div>
-        <div class="hp-text" id="opp-hp-text"></div>
+        <div class="hp-track"><div class="hp-fill" id="opp-hp"></div></div>
+        <div class="hp-label" id="opp-hp-text"></div>
       </div>
 
-      <!-- Battle scene -->
+      <!-- Battle Scene -->
       <div id="battle-scene">
-        <div id="opp-sprite-area">
-          <img id="opp-sprite" class="battle-sprite" src="" alt="">
+        <div class="battlefield">
+          <div class="ground-opp"></div>
+          <div class="ground-player"></div>
         </div>
-        <div id="player-sprite-area">
-          <img id="player-sprite" class="battle-sprite" src="" alt="">
+        <div id="sprite-opp" class="sprite-slot opp-slot">
+          <img id="opp-sprite" src="" alt="" class="pokemon-sprite">
         </div>
-        <div id="turn-badge">Turn <span id="turn-num">0</span></div>
+        <div id="sprite-player" class="sprite-slot player-slot">
+          <img id="player-sprite" src="" alt="" class="pokemon-sprite back-sprite">
+        </div>
+        <div id="turn-indicator">Turn <span id="turn-num">0</span></div>
+        <div id="battle-overlay" class="hidden">
+          <span id="overlay-text"></span>
+        </div>
       </div>
 
-      <!-- Player side (bottom) -->
-      <div id="player-side" class="battle-side">
-        <div class="pokemon-status-row">
+      <!-- Player Pokemon -->
+      <div class="pokemon-bar player-bar">
+        <div class="bar-info">
           <span class="poke-name" id="player-name">???</span>
-          <span class="poke-level" id="player-level"></span>
+          <span class="poke-status" id="player-status"></span>
         </div>
-        <div class="hp-bar-wrap"><div class="hp-bar" id="player-hp-bar"></div></div>
-        <div class="hp-text" id="player-hp-text"></div>
+        <div class="hp-track"><div class="hp-fill" id="player-hp"></div></div>
+        <div class="hp-label" id="player-hp-text"></div>
       </div>
 
-      <!-- Action panel -->
+      <!-- Action Panel -->
       <div id="action-panel">
-        <div id="action-prompt"></div>
+        <div id="action-prompt">Choose a move or switch Pokemon.</div>
         <div id="moves-grid">
-          <button class="move-btn" data-slot="1" disabled>—</button>
-          <button class="move-btn" data-slot="2" disabled>—</button>
-          <button class="move-btn" data-slot="3" disabled>—</button>
-          <button class="move-btn" data-slot="4" disabled>—</button>
+          <button class="move-btn" data-slot="1" disabled></button>
+          <button class="move-btn" data-slot="2" disabled></button>
+          <button class="move-btn" data-slot="3" disabled></button>
+          <button class="move-btn" data-slot="4" disabled></button>
         </div>
-        <div id="switch-row">
-          <div id="switch-buttons"></div>
-        </div>
-        <div id="battle-controls">
-          <button id="new-battle-btn" class="btn">New Battle</button>
+        <div id="switch-row"></div>
+        <div id="controls">
+          <button id="new-battle-btn" class="ctrl-btn">New Battle</button>
         </div>
       </div>
-    </div>
+    </main>
 
-    <!-- Right: battle log -->
-    <div id="log-panel">
-      <h2>Battle Log</h2>
-      <div id="battle-log"></div>
-    </div>
-  </main>
+    <aside id="log-sidebar">
+      <div class="panel">
+        <div class="panel-header">BATTLE LOG</div>
+        <div class="panel-body" id="battle-log"></div>
+      </div>
+    </aside>
+  </div>
 </div>
 <script src="/client.js"></script>
 </body>
