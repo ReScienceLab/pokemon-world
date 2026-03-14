@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Battle Demo — Agent Worlds</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/demo.css">
+  <!-- Showdown battle styles -->
+  <link rel="stylesheet" href="https://play.pokemonshowdown.com/style/font-awesome.css">
+  <link rel="stylesheet" href="https://play.pokemonshowdown.com/style/battle.css?a7">
+  <link rel="stylesheet" href="https://play.pokemonshowdown.com/style/replay.css?a7">
+  <link rel="stylesheet" href="https://play.pokemonshowdown.com/style/utilichart.css?a7">
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="header-left">
+      <span class="tagline">INTERNET FOR AGENTS</span>
+      <h1>AGENT BATTLE</h1>
+    </div>
+    <div class="header-right">
+      <div class="stat-box">
+        <span class="stat-num" id="turn-num">0</span>
+        <span class="stat-label">TURN</span>
+      </div>
+      <button id="restart-btn" onclick="restart()">NEW BATTLE</button>
+    </div>
+  </header>
+
+  <div class="arena">
+    <!-- Agent Alpha (left) -->
+    <div class="agent-col" id="p1-col">
+      <div class="agent-header">
+        <span class="agent-badge online">AGENT P1</span>
+        <div class="agent-name" id="p1-name">AGENT ALPHA</div>
+      </div>
+      <div class="thinking-box">
+        <div class="section-label">THINKING...</div>
+        <div class="thinking-body" id="p1-thoughts"></div>
+      </div>
+      <div class="team-box">
+        <div class="section-label">TEAM</div>
+        <div id="p1-team"></div>
+      </div>
+    </div>
+
+    <!-- Battle Center — Showdown renderer -->
+    <div class="battle-col">
+      <div id="showdown-battle-wrapper">
+        <div class="wrapper replay-wrapper">
+          <div class="battle"></div>
+          <div class="battle-log"></div>
+        </div>
+      </div>
+
+      <!-- Move panels + battle status below the scene -->
+      <div id="info-panel">
+        <div class="move-panel" id="p1-moves-panel">
+          <div class="move-panel-header">
+            <span class="move-panel-name" id="p1-active-name">---</span>
+            <span class="move-panel-types" id="p1-active-types"></span>
+          </div>
+          <div class="move-grid" id="p1-moves"></div>
+        </div>
+
+        <div class="battle-status" id="battle-status">
+          <div class="status-row" id="status-log"></div>
+        </div>
+
+        <div class="move-panel" id="p2-moves-panel">
+          <div class="move-panel-header">
+            <span class="move-panel-name" id="p2-active-name">---</span>
+            <span class="move-panel-types" id="p2-active-types"></span>
+          </div>
+          <div class="move-grid" id="p2-moves"></div>
+        </div>
+      </div>
+
+      <div id="result-overlay" class="hidden">
+        <div id="result-text"></div>
+      </div>
+    </div>
+
+    <!-- Agent Beta (right) -->
+    <div class="agent-col" id="p2-col">
+      <div class="agent-header">
+        <span class="agent-badge online">AGENT P2</span>
+        <div class="agent-name" id="p2-name">AGENT BETA</div>
+      </div>
+      <div class="thinking-box">
+        <div class="section-label">THINKING...</div>
+        <div class="thinking-body" id="p2-thoughts"></div>
+      </div>
+      <div class="team-box">
+        <div class="section-label">TEAM</div>
+        <div id="p2-team"></div>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <span>POWERED BY <a href="https://github.com/ReScienceLab/DAP">DAP</a></span>
+    <span class="sep">|</span>
+    <span>ENGINE: <a href="https://github.com/pkmn/ps">@PKMN/SIM</a></span>
+    <span class="sep">|</span>
+    <span>ANIMATIONS: <a href="https://pokemonshowdown.com">SHOWDOWN</a></span>
+  </footer>
+</div>
+
+<!-- Showdown dependencies -->
+<script>window.exports = window;</script>
+<script src="https://play.pokemonshowdown.com/js/lib/ps-polyfill.js"></script>
+<script src="https://play.pokemonshowdown.com/config/config.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/js/lib/jquery-1.11.0.min.js"></script>
+<script src="https://play.pokemonshowdown.com/js/lib/html-sanitizer-minified.js"></script>
+<script src="https://play.pokemonshowdown.com/js/battle-sound.js"></script>
+<script src="https://play.pokemonshowdown.com/js/battledata.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/pokedex-mini.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/pokedex-mini-bw.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/graphics.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/pokedex.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/moves.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/abilities.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/items.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/data/teambuilder-tables.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/js/battle-tooltips.js?a7"></script>
+<script src="https://play.pokemonshowdown.com/js/battle.js?a7"></script>
+<script src="/demo.js"></script>
+</body>
+</html>
