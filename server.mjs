@@ -1,734 +1,373 @@
 /**
- * DAP Pokemon Battle World Agent
- * Turn-based Pokemon battle powered by @pkmn/sim.
+ * Pokemon Battle Demo — Two AI agents battle with visible thinking
+ * For investor demos: shows agents reasoning about type matchups,
+ * HP management, and strategic decisions in real-time.
  *
- * Each agent that joins gets matched into a 1v1 battle (3 random Gen 1 Pokemon).
- * If no opponent is available, the agent fights a built-in RandomAI.
- *
- * Endpoints (same DAP World Agent interface as server.mjs):
- *   GET  /peer/ping        — health check
- *   GET  /peer/peers       — known DAP peers
- *   POST /peer/announce    — accept signed peer announcement
- *   POST /peer/message     — world.join / world.action / world.leave
- *   GET  /world/state      — current world snapshot
- *
- * Actions (sent via world.action):
- *   { action: "move",   slot: 1-4 }   — use move in slot N
- *   { action: "switch", slot: 1-6 }   — switch to Pokemon in slot N
- *
- * Env:
- *   WORLD_ID      — unique world id (default "pokemon-arena")
- *   WORLD_NAME    — display name (default "Pokemon Battle Arena")
- *   PEER_PORT     — DAP HTTP port (default 8099)
- *   DATA_DIR      — persistence directory (default /data)
- *   BOOTSTRAP_URL — bootstrap.json URL
- *   PUBLIC_ADDR   — own public IP/hostname for announce
- *   TEAM_SIZE     — Pokemon per team (default 3)
- *   GEN           — generation for random teams (default 1)
+ * Run: PEER_PORT=9099 DATA_DIR=/tmp/demo node demo.mjs
+ * Open: http://localhost:9099/
  */
 import Fastify from "fastify";
-import nacl from "tweetnacl";
 import fs from "fs";
 import path from "path";
 import crypto from "node:crypto";
 import { createRequire } from "node:module";
+import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const { Dex, BattleStreams, RandomPlayerAI, Teams } = require("@pkmn/sim");
+const { Dex, BattleStreams, Teams } = require("@pkmn/sim");
 const { TeamGenerators } = require("@pkmn/randoms");
 Teams.setGeneratorFactory(TeamGenerators);
 
-const WORLD_ID = process.env.WORLD_ID ?? "pokemon-arena";
-const WORLD_NAME = process.env.WORLD_NAME ?? "Pokemon Battle Arena";
-const PORT = parseInt(process.env.PEER_PORT ?? "8099");
-const DATA_DIR = process.env.DATA_DIR ?? "/data";
-const PUBLIC_ADDR = process.env.PUBLIC_ADDR ?? null;
-const BOOTSTRAP_URL = process.env.BOOTSTRAP_URL ?? "https://resciencelab.github.io/DAP/bootstrap.json";
+const PORT = parseInt(process.env.PEER_PORT ?? "9099");
+const DATA_DIR = process.env.DATA_DIR ?? "/tmp/pokemon-demo";
 const TEAM_SIZE = parseInt(process.env.TEAM_SIZE ?? "3");
-const GEN = parseInt(process.env.GEN ?? "1");
+const GEN = parseInt(process.env.GEN ?? "5");
 const FORMAT = `gen${GEN}randombattle`;
-const MAX_PEERS = 200;
-const MAX_EVENTS = 100;
+const TURN_DELAY = parseInt(process.env.TURN_DELAY ?? "3000");
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ---------------------------------------------------------------------------
-// Crypto helpers (mirrors bootstrap/server.mjs)
-// ---------------------------------------------------------------------------
-
-function agentIdFromPublicKey(publicKeyB64) {
-  return crypto.createHash("sha256").update(Buffer.from(publicKeyB64, "base64")).digest("hex").slice(0, 32);
-}
-
-function canonicalize(value) {
-  if (Array.isArray(value)) return value.map(canonicalize);
-  if (value !== null && typeof value === "object") {
-    const sorted = {};
-    for (const k of Object.keys(value).sort()) sorted[k] = canonicalize(value[k]);
-    return sorted;
-  }
-  return value;
-}
-
-function verifySignature(publicKeyB64, obj, signatureB64) {
-  try {
-    const pubKey = Buffer.from(publicKeyB64, "base64");
-    const sig = Buffer.from(signatureB64, "base64");
-    const msg = Buffer.from(JSON.stringify(canonicalize(obj)));
-    return nacl.sign.detached.verify(msg, sig, pubKey);
-  } catch { return false; }
-}
-
-function signPayload(payload, secretKey) {
-  const sig = nacl.sign.detached(Buffer.from(JSON.stringify(canonicalize(payload))), secretKey);
-  return Buffer.from(sig).toString("base64");
-}
-
-// ---------------------------------------------------------------------------
-// Identity
-// ---------------------------------------------------------------------------
-fs.mkdirSync(DATA_DIR, { recursive: true });
-
-const idFile = path.join(DATA_DIR, "world-identity.json");
-let selfKeypair;
-if (fs.existsSync(idFile)) {
-  const saved = JSON.parse(fs.readFileSync(idFile, "utf8"));
-  selfKeypair = nacl.sign.keyPair.fromSeed(Buffer.from(saved.seed, "base64"));
-} else {
-  const seed = nacl.randomBytes(32);
-  selfKeypair = nacl.sign.keyPair.fromSeed(seed);
-  fs.writeFileSync(idFile, JSON.stringify({
-    seed: Buffer.from(seed).toString("base64"),
-    publicKey: Buffer.from(selfKeypair.publicKey).toString("base64"),
-  }, null, 2));
-}
-const selfPubB64 = Buffer.from(selfKeypair.publicKey).toString("base64");
-const selfAgentId = agentIdFromPublicKey(selfPubB64);
-
-console.log(`[pokemon] agentId=${selfAgentId} world=${WORLD_ID}`);
-
-// ---------------------------------------------------------------------------
-// Peer DB
-// ---------------------------------------------------------------------------
-const peers = new Map();
-
-function upsertPeer(agentId, publicKey, opts = {}) {
-  const existing = peers.get(agentId);
-  peers.set(agentId, {
-    agentId,
-    publicKey: publicKey || existing?.publicKey || "",
-    alias: opts.alias ?? existing?.alias ?? "",
-    endpoints: opts.endpoints ?? existing?.endpoints ?? [],
-    capabilities: opts.capabilities ?? existing?.capabilities ?? [],
-    lastSeen: Date.now(),
-  });
-  if (peers.size > MAX_PEERS) {
-    const oldest = [...peers.values()].sort((a, b) => a.lastSeen - b.lastSeen)[0];
-    peers.delete(oldest.agentId);
-  }
-}
-
-function getPeersForExchange(limit = 50) {
-  return [...peers.values()]
-    .sort((a, b) => b.lastSeen - a.lastSeen)
-    .slice(0, limit)
-    .map(({ agentId, publicKey, alias, endpoints, capabilities, lastSeen }) => ({
-      agentId, publicKey, alias, endpoints: endpoints ?? [], capabilities: capabilities ?? [], lastSeen,
-    }));
-}
-
-// ---------------------------------------------------------------------------
-// World Manifest
-// ---------------------------------------------------------------------------
-
-const MANIFEST = {
-  name: WORLD_NAME,
-  theme: "pokemon-battle",
-  description: `Turn-based Pokemon battle arena (Gen ${GEN}). Each player gets ${TEAM_SIZE} random Pokemon. Defeat all opponent Pokemon to win. You battle against a built-in AI opponent.`,
-  objective: "Knock out all opponent Pokemon to win the battle.",
-  rules: [
-    "Each battle is 1v1 with random teams.",
-    "On each turn you must choose a move (slot 1-4) or switch Pokemon (slot 1-6).",
-    "Type matchups matter: Fire > Grass > Water > Fire, etc.",
-    "You can only switch to Pokemon that are not fainted.",
-    "The battle ends when all Pokemon on one side faint.",
-  ],
-  actions: {
-    move: {
-      params: { slot: "1-4 (index of the move to use)" },
-      desc: "Use the move in the given slot. Check your active Pokemon's moves in the battle state.",
-    },
-    switch: {
-      params: { slot: "1-6 (index of the Pokemon to switch to)" },
-      desc: "Switch your active Pokemon to the one in the given slot. Cannot switch to fainted Pokemon or the currently active one.",
-    },
-  },
-  state_fields: [
-    "battleId — unique battle identifier",
-    "turn — current turn number",
-    "active — your active Pokemon (name, hp, maxHp, moves with pp)",
-    "team — your full team (name, hp, maxHp, active, fainted)",
-    "opponent — opponent's active Pokemon (name, hp% estimate)",
-    "log — recent battle log lines describing what happened",
-    "waitingForAction — true when it is your turn to act",
-    "battleOver — true when the battle has ended",
-    "winner — the winner's name when battleOver is true",
-  ],
+// Type effectiveness chart (Gen 1)
+const TYPE_CHART = {
+  Normal:{Rock:0.5,Ghost:0},Fire:{Fire:0.5,Water:0.5,Grass:2,Ice:2,Bug:2,Rock:0.5,Dragon:0.5},
+  Water:{Fire:2,Water:0.5,Grass:0.5,Ground:2,Rock:2,Dragon:0.5},
+  Grass:{Fire:0.5,Water:2,Grass:0.5,Poison:0.5,Ground:2,Flying:0.5,Bug:0.5,Rock:2,Dragon:0.5},
+  Electric:{Water:2,Grass:0.5,Electric:0.5,Ground:0,Flying:2,Dragon:0.5},
+  Ice:{Fire:0.5,Water:0.5,Grass:2,Ice:0.5,Ground:2,Flying:2,Dragon:2},
+  Fighting:{Normal:2,Ice:2,Poison:0.5,Flying:0.5,Psychic:0.5,Bug:0.5,Rock:2,Ghost:0},
+  Poison:{Grass:2,Poison:0.5,Ground:0.5,Bug:2,Rock:0.5,Ghost:0.5},
+  Ground:{Fire:2,Electric:2,Grass:0.5,Poison:2,Flying:0,Bug:0.5,Rock:2},
+  Flying:{Grass:2,Electric:0.5,Fighting:2,Bug:2,Rock:0.5},
+  Psychic:{Fighting:2,Poison:2,Psychic:0.5},
+  Bug:{Fire:0.5,Grass:2,Fighting:0.5,Poison:2,Flying:0.5,Psychic:2,Ghost:0.5},
+  Rock:{Fire:2,Ice:2,Fighting:0.5,Ground:0.5,Flying:2,Bug:2},
+  Ghost:{Normal:0,Ghost:2,Psychic:0},Dragon:{Dragon:2},
+  Dark:{Fighting:0.5,Psychic:2,Ghost:2,Dark:0.5},Steel:{},Fairy:{}
 };
 
-// ---------------------------------------------------------------------------
-// Battle Manager
-// ---------------------------------------------------------------------------
-
-// agentId -> BattleSession
-const battles = new Map();
-
-// recent events
-const events = [];
-function addEvent(type, data) {
-  const ev = { type, ...data, ts: Date.now() };
-  events.push(ev);
-  if (events.length > MAX_EVENTS) events.shift();
-  return ev;
+function getEffectiveness(moveType, defTypes) {
+  let mult = 1;
+  for (const dt of defTypes) { mult *= (TYPE_CHART[moveType]?.[dt] ?? 1); }
+  return mult;
 }
 
-class BattleSession {
-  constructor(agentId, alias) {
-    this.agentId = agentId;
-    this.alias = alias;
+// ---------------------------------------------------------------------------
+// DemoBattle — two AI agents with thinking
+// ---------------------------------------------------------------------------
+class DemoBattle {
+  constructor() {
     this.battleId = crypto.randomUUID();
     this.battleOver = false;
     this.winner = null;
     this.turn = 0;
     this.log = [];
-    this.pendingRequest = null;
-    this.team = null;
+    this.protocolLog = [];
+    this.thinking = { p1: [], p2: [] };
+    this.lastChoice = { p1: null, p2: null };
+    this.p1 = { name: "Agent Alpha", alias: "Alpha", team: null, request: null, active: null };
+    this.p2 = { name: "Agent Beta", alias: "Beta", team: null, request: null, active: null };
     this.startedAt = Date.now();
-
+    this.autoRunning = false;
     this._initBattle();
   }
 
   _initBattle() {
     const stream = new BattleStreams.BattleStream();
-    this.streams = BattleStreams.getPlayerStreams(stream);
-
-    // p2 is the built-in RandomAI
-    this.ai = new RandomPlayerAI(this.streams.p2);
-    void this.ai.start();
-
-    // Generate teams
-    const fullTeam1 = Teams.generate(FORMAT);
-    const fullTeam2 = Teams.generate(FORMAT);
-    const team1 = fullTeam1.slice(0, TEAM_SIZE);
-    const team2 = fullTeam2.slice(0, TEAM_SIZE);
-    this.team = team1;
-
-    const p1spec = { name: this.alias, team: Teams.pack(team1) };
-    const p2spec = { name: "Wild AI", team: Teams.pack(team2) };
-
-    // Listen to p1 stream for battle events
-    this._listenP1();
-
-    // Start the battle
-    void this.streams.omniscient.write(
-      `>start ${JSON.stringify({ formatid: FORMAT })}\n>player p1 ${JSON.stringify(p1spec)}\n>player p2 ${JSON.stringify(p2spec)}`
+    this.allStreams = BattleStreams.getPlayerStreams(stream);
+    this._listenOmniscient(this.allStreams.omniscient);
+    const t1 = Teams.generate(FORMAT).slice(0, TEAM_SIZE);
+    const t2 = Teams.generate(FORMAT).slice(0, TEAM_SIZE);
+    this.p1.team = t1;
+    this.p2.team = t2;
+    this._listenStream("p1", this.allStreams.p1);
+    this._listenStream("p2", this.allStreams.p2);
+    this.allStreams.omniscient.write(
+      `>start ${JSON.stringify({ formatid: FORMAT })}\n` +
+      `>player p1 ${JSON.stringify({ name: this.p1.name, team: Teams.pack(t1) })}\n` +
+      `>player p2 ${JSON.stringify({ name: this.p2.name, team: Teams.pack(t2) })}`
     );
   }
 
-  async _listenP1() {
+  async _listenOmniscient(stream) {
     try {
-      for await (const chunk of this.streams.p1) {
-        this._processChunk(chunk);
-      }
-    } catch {}
-  }
-
-  _processChunk(chunk) {
-    const lines = chunk.split("\n");
-    for (const line of lines) {
-      if (line.startsWith("|request|")) {
-        const req = JSON.parse(line.slice(9));
-        this.pendingRequest = req;
-        if (req.active) {
-          this.turn++;
+      for await (const chunk of stream) {
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("|request|") || line.startsWith(">")) continue;
+          this.protocolLog.push(line);
         }
-      } else if (line.startsWith("|win|")) {
-        this.winner = line.slice(5);
-        this.battleOver = true;
-        this.pendingRequest = null;
-        this.log.push(`Battle over! Winner: ${this.winner}`);
-        addEvent("battle.end", { agentId: this.agentId, battleId: this.battleId, winner: this.winner });
-      } else if (line === "|tie" || line.startsWith("|tie|")) {
-        this.winner = "tie";
-        this.battleOver = true;
-        this.pendingRequest = null;
-        this.log.push("Battle ended in a tie!");
-        addEvent("battle.end", { agentId: this.agentId, battleId: this.battleId, winner: "tie" });
-      } else if (line.startsWith("|turn|")) {
-        this.turn = parseInt(line.split("|")[2]);
-      } else if (line.startsWith("|error|")) {
-        this.log.push(`Error: ${line.slice(7)}`);
-      } else if (
-        line.startsWith("|move|") || line.startsWith("|-damage|") ||
-        line.startsWith("|-supereffective") || line.startsWith("|-resisted") ||
-        line.startsWith("|switch|") || line.startsWith("|faint|") ||
-        line.startsWith("|-crit") || line.startsWith("|-miss") ||
-        line.startsWith("|-status|") || line.startsWith("|-heal|") ||
-        line.startsWith("|-boost|") || line.startsWith("|-unboost|")
-      ) {
-        this.log.push(this._formatLogLine(line));
-        if (this.log.length > 30) this.log.shift();
       }
-    }
-  }
-
-  _formatLogLine(line) {
-    const parts = line.split("|").filter(Boolean);
-    const type = parts[0];
-    switch (type) {
-      case "move": return `${this._shortName(parts[1])} used ${parts[2]}!`;
-      case "-damage": return `${this._shortName(parts[1])} took damage → ${parts[2]}`;
-      case "-supereffective": return "It's super effective!";
-      case "-resisted": return "It's not very effective...";
-      case "switch": return `${this._shortName(parts[1])} sent out ${parts[2].split(",")[0]}!`;
-      case "faint": return `${this._shortName(parts[1])} fainted!`;
-      case "-crit": return "A critical hit!";
-      case "-miss": return `${this._shortName(parts[1])} missed!`;
-      case "-status": return `${this._shortName(parts[1])} was ${parts[2]}!`;
-      case "-heal": return `${this._shortName(parts[1])} healed → ${parts[2]}`;
-      case "-boost": return `${this._shortName(parts[1])}'s ${parts[2]} rose!`;
-      case "-unboost": return `${this._shortName(parts[1])}'s ${parts[2]} fell!`;
-      default: return line;
-    }
-  }
-
-  _shortName(ident) {
-    if (!ident) return "???";
-    // "p1a: Pikachu" -> "Pikachu"
-    return ident.includes(":") ? ident.split(": ")[1] : ident;
-  }
-
-  getState() {
-    const req = this.pendingRequest;
-    const state = {
-      battleId: this.battleId,
-      turn: this.turn,
-      battleOver: this.battleOver,
-      winner: this.winner,
-      log: this.log.slice(-10),
-      waitingForAction: false,
-      active: null,
-      team: [],
-      opponent: null,
-    };
-
-    if (!req) return state;
-
-    // Parse team from request
-    if (req.side?.pokemon) {
-      state.team = req.side.pokemon.map((p, i) => {
-        const [hp, maxHp] = (p.condition || "0 fnt").split("/").map(s => parseInt(s));
-        return {
-          slot: i + 1,
-          name: p.details.split(",")[0],
-          hp: isNaN(hp) ? 0 : hp,
-          maxHp: isNaN(maxHp) ? 0 : maxHp,
-          active: p.active || false,
-          fainted: p.condition.includes("fnt"),
-        };
-      });
-      const activePoke = req.side.pokemon.find(p => p.active);
-      if (activePoke && req.active?.[0]) {
-        const [hp, maxHp] = activePoke.condition.split("/").map(s => parseInt(s));
-        state.active = {
-          name: activePoke.details.split(",")[0],
-          hp, maxHp,
-          moves: req.active[0].moves.map((m, i) => ({
-            slot: i + 1,
-            name: m.move,
-            pp: m.pp,
-            maxPp: m.maxpp,
-            disabled: m.disabled || false,
-          })),
-        };
-      }
-    }
-
-    // forceSwitch means we must switch, not move
-    if (req.forceSwitch) {
-      state.waitingForAction = true;
-      state.mustSwitch = true;
-    } else if (req.active) {
-      state.waitingForAction = true;
-      state.mustSwitch = false;
-    }
-
-    return state;
-  }
-
-  submitAction(action, slot) {
-    if (this.battleOver) return { ok: false, error: "Battle is already over." };
-    if (!this.pendingRequest) return { ok: false, error: "Not waiting for action." };
-
-    const req = this.pendingRequest;
-
-    if (action === "move") {
-      if (req.forceSwitch) return { ok: false, error: "You must switch Pokemon, not use a move." };
-      if (!req.active?.[0]?.moves) return { ok: false, error: "No moves available." };
-      const moveIdx = parseInt(slot);
-      if (isNaN(moveIdx) || moveIdx < 1 || moveIdx > req.active[0].moves.length) {
-        return { ok: false, error: `Invalid move slot. Choose 1-${req.active[0].moves.length}.` };
-      }
-      const move = req.active[0].moves[moveIdx - 1];
-      if (move.disabled) return { ok: false, error: `Move ${move.move} is disabled.` };
-      if (move.pp <= 0) return { ok: false, error: `Move ${move.move} has no PP left.` };
-      this.pendingRequest = null;
-      this.streams.p1.write(`move ${moveIdx}`);
-      return { ok: true, chose: `move ${moveIdx} (${move.move})` };
-    }
-
-    if (action === "switch") {
-      const switchIdx = parseInt(slot);
-      if (!req.side?.pokemon) return { ok: false, error: "No team data." };
-      if (isNaN(switchIdx) || switchIdx < 1 || switchIdx > req.side.pokemon.length) {
-        return { ok: false, error: `Invalid switch slot. Choose 1-${req.side.pokemon.length}.` };
-      }
-      const target = req.side.pokemon[switchIdx - 1];
-      if (target.active) return { ok: false, error: "That Pokemon is already active." };
-      if (target.condition.includes("fnt")) return { ok: false, error: "That Pokemon has fainted." };
-      this.pendingRequest = null;
-      this.streams.p1.write(`switch ${switchIdx}`);
-      return { ok: true, chose: `switch ${switchIdx} (${target.details.split(",")[0]})` };
-    }
-
-    return { ok: false, error: `Unknown action "${action}". Use "move" or "switch".` };
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Bootstrap discovery (same as server.mjs)
-// ---------------------------------------------------------------------------
-
-async function fetchBootstrapNodes() {
-  try {
-    const resp = await fetch(BOOTSTRAP_URL, { signal: AbortSignal.timeout(10_000) });
-    if (!resp.ok) return [];
-    const data = await resp.json();
-    return (data.bootstrap_nodes ?? []).filter((n) => n.addr).map((n) => ({
-      addr: n.addr, httpPort: n.httpPort ?? 8099,
-    }));
-  } catch { return []; }
-}
-
-async function announceToNode(addr, httpPort) {
-  const isIpv6 = addr.includes(":") && !addr.includes(".");
-  const url = isIpv6 ? `http://[${addr}]:${httpPort}/peer/announce` : `http://${addr}:${httpPort}/peer/announce`;
-  const selfAddr = PUBLIC_ADDR ?? null;
-  const endpoints = selfAddr
-    ? [{ transport: "tcp", address: selfAddr, port: PORT, priority: 1, ttl: 3600 }]
-    : [];
-  const payload = {
-    from: selfAgentId,
-    publicKey: selfPubB64,
-    alias: WORLD_NAME,
-    version: "1.0.0",
-    endpoints,
-    capabilities: [`world:${WORLD_ID}`],
-    timestamp: Date.now(),
-  };
-  payload.signature = signPayload(payload, selfKeypair.secretKey);
-  try {
-    const resp = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!resp.ok) return;
-    const data = await resp.json();
-    for (const peer of data.peers ?? []) {
-      if (peer.agentId && peer.agentId !== selfAgentId) {
-        upsertPeer(peer.agentId, peer.publicKey, {
-          alias: peer.alias, endpoints: peer.endpoints, capabilities: peer.capabilities,
-        });
-      }
-    }
-    console.log(`[pokemon] Announced to ${addr}:${httpPort}, got ${data.peers?.length ?? 0} peers`);
-  } catch (e) {
-    console.warn(`[pokemon] Could not reach bootstrap ${addr}:${httpPort}: ${e.message}`);
-  }
-}
-
-async function bootstrapDiscovery() {
-  const nodes = await fetchBootstrapNodes();
-  if (!nodes.length) { console.warn("[pokemon] No bootstrap nodes found"); return; }
-  await Promise.allSettled(nodes.map((n) => announceToNode(n.addr, n.httpPort)));
-}
-
-// ---------------------------------------------------------------------------
-// Outbound messaging
-// ---------------------------------------------------------------------------
-
-async function sendMessage(endpoints, event, content) {
-  if (!endpoints?.length) return;
-  const sorted = [...endpoints].sort((a, b) => a.priority - b.priority);
-  const payload = {
-    from: selfAgentId,
-    publicKey: selfPubB64,
-    event,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-    timestamp: Date.now(),
-  };
-  payload.signature = signPayload(payload, selfKeypair.secretKey);
-  for (const ep of sorted) {
-    try {
-      const addr = ep.address;
-      const port = ep.port ?? 8099;
-      const isIpv6 = addr.includes(":") && !addr.includes(".");
-      const url = isIpv6 ? `http://[${addr}]:${port}/peer/message` : `http://${addr}:${port}/peer/message`;
-      await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(8_000),
-      });
-      return;
     } catch {}
   }
+
+  async _listenStream(side, stream) {
+    const player = this[side];
+    try {
+      for await (const chunk of stream) {
+        for (const line of chunk.split("\n")) {
+          if (line.startsWith("|request|")) {
+            player.request = JSON.parse(line.slice(9));
+          } else if (line.startsWith("|win|")) {
+            this.winner = line.slice(5);
+            this.battleOver = true;
+            this.log.push({ turn: this.turn, text: `Battle over! Winner: ${this.winner}`, type: "win" });
+          } else if (line === "|tie" || line.startsWith("|tie|")) {
+            this.winner = "tie";
+            this.battleOver = true;
+            this.log.push({ turn: this.turn, text: "Battle ended in a tie!", type: "win" });
+          } else if (line.startsWith("|turn|")) {
+            this.turn = parseInt(line.split("|")[2]);
+            this.log.push({ turn: this.turn, text: `--- Turn ${this.turn} ---`, type: "turn" });
+          } else {
+            const fmt = this._formatLine(line);
+            if (fmt) this.log.push({ turn: this.turn, text: fmt.text, type: fmt.type });
+          }
+        }
+      }
+    } catch {}
+  }
+
+  _formatLine(line) {
+    const p = line.split("|").filter(Boolean);
+    const t = p[0];
+    const sn = (id) => id?.includes(":") ? id.split(": ")[1] : id;
+    switch (t) {
+      case "move": return { text: `${sn(p[1])} used ${p[2]}!`, type: "move" };
+      case "-damage": return { text: `${sn(p[1])} → ${p[2]}`, type: "damage" };
+      case "-supereffective": return { text: "It's super effective!", type: "super" };
+      case "-resisted": return { text: "It's not very effective...", type: "resist" };
+      case "switch": return { text: `${sn(p[1])} sent out ${p[2]?.split(",")[0]}!`, type: "switch" };
+      case "faint": return { text: `${sn(p[1])} fainted!`, type: "faint" };
+      case "-crit": return { text: "A critical hit!", type: "crit" };
+      case "-miss": return { text: `${sn(p[1])} missed!`, type: "miss" };
+      case "-status": return { text: `${sn(p[1])} is ${p[2]}!`, type: "status" };
+      case "-heal": return { text: `${sn(p[1])} healed → ${p[2]}`, type: "heal" };
+      case "-boost": return { text: `${sn(p[1])}'s ${p[2]} rose!`, type: "boost" };
+      case "-unboost": return { text: `${sn(p[1])}'s ${p[2]} fell!`, type: "boost" };
+      default: return null;
+    }
+  }
+
+  _parseState(side) {
+    const player = this[side];
+    const req = player.request;
+    if (!req) return { active: null, team: [], moves: [], mustSwitch: false };
+    const team = (req.side?.pokemon || []).map((p, i) => {
+      const [hp, maxHp] = (p.condition || "0 fnt").split("/").map(s => parseInt(s));
+      return {
+        slot: i + 1, name: p.details.split(",")[0],
+        hp: isNaN(hp) ? 0 : hp, maxHp: isNaN(maxHp) ? 0 : maxHp,
+        active: !!p.active, fainted: p.condition.includes("fnt"),
+        types: (Dex.species.get(p.details.split(",")[0])?.types) || ["Normal"],
+      };
+    });
+    const activePoke = team.find(p => p.active);
+    const moves = (req.active?.[0]?.moves || []).map((m, i) => {
+      const moveData = Dex.moves.get(m.move);
+      return {
+        slot: i + 1, name: m.move, type: moveData?.type || "Normal",
+        basePower: moveData?.basePower || 0, pp: m.pp, maxPp: m.maxpp,
+        disabled: m.disabled || false, category: moveData?.category || "Physical",
+      };
+    });
+    return {
+      active: activePoke, team, moves,
+      mustSwitch: !!req.forceSwitch, canMove: !!req.active && !req.forceSwitch,
+    };
+  }
+
+  // Strategic AI with visible thinking
+  _think(side) {
+    const state = this._parseState(side);
+    const player = this[side];
+    const oppSide = side === "p1" ? "p2" : "p1";
+    const oppState = this._parseState(oppSide);
+    const thoughts = [];
+    let choice = null;
+
+    if (state.mustSwitch) {
+      thoughts.push(`My ${state.active?.name || "Pokemon"} fainted. I need to switch.`);
+      const alive = state.team.filter(p => !p.fainted && !p.active);
+      if (alive.length === 0) return { choice: null, thoughts };
+
+      if (oppState.active) {
+        const oppTypes = oppState.active.types;
+        thoughts.push(`Opponent has ${oppState.active.name} (${oppTypes.join("/")}). Let me find a good counter.`);
+        let best = alive[0], bestScore = -999;
+        for (const p of alive) {
+          let score = p.hp / p.maxHp * 100;
+          const defMult = oppTypes.reduce((m, ot) => m * getEffectiveness(ot, p.types), 1);
+          if (defMult < 1) { score += 30; thoughts.push(`  ${p.name} resists ${oppTypes.join("/")} attacks — good defensive matchup.`); }
+          if (defMult > 1) { score -= 20; thoughts.push(`  ${p.name} is weak to ${oppTypes.join("/")} — risky.`); }
+          if (score > bestScore) { bestScore = score; best = p; }
+        }
+        thoughts.push(`Decision: Switch to ${best.name} (HP: ${best.hp}/${best.maxHp}).`);
+        choice = `switch ${best.slot}`;
+      } else {
+        const best = alive.sort((a, b) => b.hp - a.hp)[0];
+        thoughts.push(`No info on opponent. Sending ${best.name} (highest HP: ${best.hp}/${best.maxHp}).`);
+        choice = `switch ${best.slot}`;
+      }
+      return { choice, thoughts };
+    }
+
+    if (!state.canMove || !state.active) return { choice: null, thoughts: ["Waiting..."] };
+
+    const myActive = state.active;
+    const myHpPct = myActive.maxHp > 0 ? Math.round(myActive.hp / myActive.maxHp * 100) : 0;
+    thoughts.push(`My ${myActive.name} (${myActive.types.join("/")}): ${myActive.hp}/${myActive.maxHp} HP (${myHpPct}%).`);
+
+    if (oppState.active) {
+      const opp = oppState.active;
+      const oppHpPct = opp.maxHp > 0 ? Math.round(opp.hp / opp.maxHp * 100) : 0;
+      thoughts.push(`Facing ${opp.name} (${opp.types.join("/")}): ~${oppHpPct}% HP.`);
+
+      // Evaluate moves
+      let bestMove = null, bestScore = -999;
+      for (const m of state.moves) {
+        if (m.disabled || m.pp <= 0) continue;
+        let score = m.basePower;
+        const eff = getEffectiveness(m.type, opp.types);
+        score *= eff;
+        if (myActive.types.includes(m.type)) score *= 1.5; // STAB
+        const effLabel = eff > 1 ? "SUPER EFFECTIVE" : eff < 1 ? "not very effective" : "neutral";
+        const stab = myActive.types.includes(m.type) ? " + STAB" : "";
+        thoughts.push(`  ${m.name} (${m.type}, ${m.basePower} BP): ${effLabel}${stab} → score ${Math.round(score)}`);
+        if (score > bestScore) { bestScore = score; bestMove = m; }
+      }
+
+      // Consider switching if bad matchup and low-power moves
+      if (bestScore < 40 && myHpPct > 30) {
+        const alive = state.team.filter(p => !p.fainted && !p.active);
+        for (const p of alive) {
+          const pTypes = p.types;
+          const defMult = opp.types.reduce((m2, ot) => m2 * getEffectiveness(ot, pTypes), 1);
+          if (defMult < 1) {
+            thoughts.push(`My moves are weak. ${p.name} would resist their attacks — considering switch.`);
+            thoughts.push(`Decision: Switch to ${p.name} for better matchup.`);
+            return { choice: `switch ${p.slot}`, thoughts };
+          }
+        }
+      }
+
+      if (bestMove) {
+        thoughts.push(`Decision: Use ${bestMove.name} (score ${Math.round(bestScore)}).`);
+        choice = `move ${bestMove.slot}`;
+      } else {
+        thoughts.push("No usable moves. Struggle.");
+        choice = "move 1";
+      }
+    } else {
+      const bestMove = state.moves.filter(m => !m.disabled && m.pp > 0).sort((a, b) => b.basePower - a.basePower)[0];
+      if (bestMove) {
+        thoughts.push(`No info on opponent. Using strongest move: ${bestMove.name}.`);
+        choice = `move ${bestMove.slot}`;
+      } else { choice = "move 1"; }
+    }
+
+    return { choice, thoughts };
+  }
+
+  async playTurn() {
+    if (this.battleOver) return false;
+    await new Promise(r => setTimeout(r, 200));
+    const sides = ["p1", "p2"];
+    for (const side of sides) {
+      const player = this[side];
+      if (!player.request) continue;
+      if (player.request.wait) continue;
+      const { choice, thoughts } = this._think(side);
+      this.thinking[side] = thoughts;
+      this.lastChoice[side] = choice;
+      if (choice) {
+        this.allStreams[side].write(choice);
+        player.request = null;
+      }
+    }
+    await new Promise(r => setTimeout(r, 300));
+    return !this.battleOver;
+  }
+
+  async autoPlay() {
+    if (this.autoRunning) return;
+    this.autoRunning = true;
+    await new Promise(r => setTimeout(r, 500));
+    while (!this.battleOver) {
+      await this.playTurn();
+      await new Promise(r => setTimeout(r, TURN_DELAY));
+    }
+    this.autoRunning = false;
+  }
+
+  getFullState() {
+    return {
+      battleId: this.battleId, turn: this.turn, battleOver: this.battleOver, winner: this.winner,
+      p1: {
+        name: this.p1.name,
+        team: this._parseState("p1").team,
+        active: this._parseState("p1").active,
+        moves: this._parseState("p1").moves,
+        choice: this.lastChoice.p1,
+        thinking: this.thinking.p1,
+      },
+      p2: {
+        name: this.p2.name,
+        team: this._parseState("p2").team,
+        active: this._parseState("p2").active,
+        moves: this._parseState("p2").moves,
+        choice: this.lastChoice.p2,
+        thinking: this.thinking.p2,
+      },
+      log: this.log.slice(-30),
+      protocolLog: this.protocolLog,
+    };
+  }
 }
 
 // ---------------------------------------------------------------------------
-// Fastify server
+// Server
 // ---------------------------------------------------------------------------
-
+fs.mkdirSync(DATA_DIR, { recursive: true });
 const fastify = Fastify({ logger: false });
+let currentDemo = null;
 
-fastify.get("/peer/ping", async () => ({
-  ok: true, ts: Date.now(), worldId: WORLD_ID, worldName: WORLD_NAME,
-  activeBattles: battles.size,
-}));
-
-fastify.get("/peer/peers", async () => ({
-  peers: getPeersForExchange(),
-}));
-
-fastify.get("/world/state", async () => ({
-  worldId: WORLD_ID,
-  worldName: WORLD_NAME,
-  theme: "pokemon-battle",
-  activeBattles: battles.size,
-  agents: [...battles.values()].map(b => ({
-    agentId: b.agentId,
-    alias: b.alias,
-    battleId: b.battleId,
-    turn: b.turn,
-    battleOver: b.battleOver,
-    winner: b.winner,
-  })),
-  recentEvents: events.slice(-20),
-  ts: Date.now(),
-}));
-
-fastify.post("/peer/announce", async (req, reply) => {
-  const ann = req.body;
-  const { signature, ...signable } = ann;
-  if (!verifySignature(ann.publicKey, signable, signature)) {
-    return reply.code(403).send({ error: "Invalid signature" });
-  }
-  const agentId = ann.from;
-  if (!agentId) return reply.code(400).send({ error: "Missing from" });
-  if (agentIdFromPublicKey(ann.publicKey) !== agentId) {
-    return reply.code(400).send({ error: "agentId does not match publicKey" });
-  }
-  upsertPeer(agentId, ann.publicKey, {
-    alias: ann.alias, endpoints: ann.endpoints, capabilities: ann.capabilities,
-  });
-  return { peers: getPeersForExchange() };
-});
-
-fastify.post("/peer/message", async (req, reply) => {
-  const msg = req.body;
-  const { signature, ...signable } = msg;
-
-  if (!verifySignature(msg.publicKey, signable, signature)) {
-    return reply.code(403).send({ error: "Invalid signature" });
-  }
-  const agentId = msg.from;
-  if (!agentId) return reply.code(400).send({ error: "Missing from" });
-
-  const knownPeer = peers.get(agentId);
-  if (knownPeer?.publicKey) {
-    if (knownPeer.publicKey !== msg.publicKey) {
-      return reply.code(403).send({ error: "publicKey does not match TOFU binding for this agentId" });
-    }
-  } else {
-    if (agentIdFromPublicKey(msg.publicKey) !== agentId) {
-      return reply.code(400).send({ error: "agentId does not match publicKey" });
-    }
-  }
-
-  upsertPeer(agentId, msg.publicKey, {});
-
-  let data = {};
-  try { data = typeof msg.content === "string" ? JSON.parse(msg.content) : msg.content; } catch {}
-
-  switch (msg.event) {
-    case "world.join": {
-      // If agent already has a battle, return its state
-      if (battles.has(agentId)) {
-        const existing = battles.get(agentId);
-        return {
-          ok: true, worldId: WORLD_ID,
-          manifest: MANIFEST,
-          battleId: existing.battleId,
-          state: existing.getState(),
-        };
-      }
-      const alias = data.alias ?? msg.alias ?? agentId.slice(0, 8);
-      const session = new BattleSession(agentId, alias);
-      battles.set(agentId, session);
-      addEvent("join", { agentId, alias, worldId: WORLD_ID, battleId: session.battleId });
-      console.log(`[pokemon] ${alias} (${agentId.slice(0, 8)}) joined — battle ${session.battleId.slice(0, 8)}`);
-
-      // Give the battle stream a moment to process initial state
-      await new Promise(r => setTimeout(r, 100));
-
-      return {
-        ok: true, worldId: WORLD_ID,
-        manifest: MANIFEST,
-        battleId: session.battleId,
-        state: session.getState(),
-      };
-    }
-
-    case "world.leave": {
-      const session = battles.get(agentId);
-      if (session) {
-        battles.delete(agentId);
-        addEvent("leave", { agentId, alias: session.alias, worldId: WORLD_ID, battleId: session.battleId });
-        console.log(`[pokemon] ${session.alias} left`);
-      }
-      return { ok: true };
-    }
-
-    case "world.action": {
-      const session = battles.get(agentId);
-      if (!session) return reply.code(400).send({ error: "Not in a battle — send world.join first." });
-
-      const action = data.action;
-      const slot = data.slot;
-
-      if (!action) return reply.code(400).send({ error: 'Missing "action" field. Use "move" or "switch".' });
-      if (slot == null) return reply.code(400).send({ error: 'Missing "slot" field.' });
-
-      const result = session.submitAction(action, slot);
-
-      // Wait briefly for battle engine to process
-      await new Promise(r => setTimeout(r, 100));
-
-      const state = session.getState();
-
-      // If battle just ended, clean up after response
-      if (state.battleOver) {
-        addEvent("battle.end", { agentId, alias: session.alias, battleId: session.battleId, winner: state.winner });
-      }
-
-      return { ...result, state };
-    }
-
-    default:
-      return { ok: true };
-  }
-});
-
-// ---------------------------------------------------------------------------
-// Browser convenience endpoints (no DAP signature required, for local play)
-// ---------------------------------------------------------------------------
-
-// Serve static web files
-import { fileURLToPath } from "node:url";
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+// Serve static files
 const webDir = path.join(__dirname, "web");
-
 fastify.get("/", async (req, reply) => {
-  try {
-    const html = fs.readFileSync(path.join(webDir, "index.html"), "utf8");
-    return reply.type("text/html").send(html);
-  } catch { return reply.code(404).send("index.html not found in web/"); }
+  const html = fs.readFileSync(path.join(webDir, "demo.html"), "utf8");
+  return reply.type("text/html").send(html);
 });
-fastify.get("/client.js", async (req, reply) => {
-  try {
-    const js = fs.readFileSync(path.join(webDir, "client.js"), "utf8");
-    return reply.type("application/javascript").send(js);
-  } catch { return reply.code(404).send(""); }
+fastify.get("/demo.js", async (req, reply) => {
+  const js = fs.readFileSync(path.join(webDir, "demo.js"), "utf8");
+  return reply.type("application/javascript").send(js);
 });
-fastify.get("/style.css", async (req, reply) => {
-  try {
-    const css = fs.readFileSync(path.join(webDir, "style.css"), "utf8");
-    return reply.type("text/css").send(css);
-  } catch { return reply.code(404).send(""); }
+fastify.get("/demo.css", async (req, reply) => {
+  const css = fs.readFileSync(path.join(webDir, "demo.css"), "utf8");
+  return reply.type("text/css").send(css);
 });
 
-// Browser sessions (no DAP identity needed)
-const browserSessions = new Map(); // sessionId -> BattleSession
-
-fastify.post("/play/join", async (req) => {
-  const { alias, sessionId: existingId } = req.body ?? {};
-  // Reuse existing session if provided
-  if (existingId && browserSessions.has(existingId)) {
-    const session = browserSessions.get(existingId);
-    return { ok: true, sessionId: existingId, battleId: session.battleId, manifest: MANIFEST, state: session.getState() };
-  }
-  const sessionId = crypto.randomUUID();
-  const name = (alias ?? "Player").slice(0, 20);
-  const session = new BattleSession(sessionId, name);
-  browserSessions.set(sessionId, session);
-  addEvent("join", { sessionId, alias: name, worldId: WORLD_ID, battleId: session.battleId });
-  console.log(`[pokemon] Browser ${name} joined — battle ${session.battleId.slice(0, 8)}`);
-  await new Promise(r => setTimeout(r, 150));
-  return { ok: true, sessionId, battleId: session.battleId, manifest: MANIFEST, state: session.getState() };
+fastify.post("/demo/start", async () => {
+  currentDemo = new DemoBattle();
+  await new Promise(r => setTimeout(r, 500));
+  currentDemo.autoPlay();
+  return { ok: true, battleId: currentDemo.battleId };
 });
 
-fastify.post("/play/action", async (req, reply) => {
-  const { sessionId, action, slot } = req.body ?? {};
-  if (!sessionId) return reply.code(400).send({ ok: false, error: "Missing sessionId" });
-  const session = browserSessions.get(sessionId);
-  if (!session) return reply.code(400).send({ ok: false, error: "Session not found. Join first." });
-  if (!action) return reply.code(400).send({ ok: false, error: 'Missing "action" field.' });
-  if (slot == null) return reply.code(400).send({ ok: false, error: 'Missing "slot" field.' });
-  const result = session.submitAction(action, slot);
-  await new Promise(r => setTimeout(r, 150));
-  return { ...result, state: session.getState() };
+fastify.get("/demo/state", async () => {
+  if (!currentDemo) return { ok: false, error: "No demo running. POST /demo/start first." };
+  return { ok: true, ...currentDemo.getFullState() };
 });
 
-fastify.post("/play/new", async (req) => {
-  const { sessionId } = req.body ?? {};
-  if (sessionId && browserSessions.has(sessionId)) {
-    browserSessions.delete(sessionId);
-  }
-  const newId = crypto.randomUUID();
-  const session = new BattleSession(newId, "Player");
-  browserSessions.set(newId, session);
-  console.log(`[pokemon] New battle ${session.battleId.slice(0, 8)}`);
-  await new Promise(r => setTimeout(r, 150));
-  return { ok: true, sessionId: newId, battleId: session.battleId, manifest: MANIFEST, state: session.getState() };
+fastify.post("/demo/restart", async () => {
+  currentDemo = new DemoBattle();
+  await new Promise(r => setTimeout(r, 500));
+  currentDemo.autoPlay();
+  return { ok: true, battleId: currentDemo.battleId };
 });
-
-// ---------------------------------------------------------------------------
-// Startup
-// ---------------------------------------------------------------------------
 
 await fastify.listen({ port: PORT, host: "::" });
-console.log(`[pokemon] Listening on [::]:${PORT}  world=${WORLD_ID}`);
-console.log(`[pokemon] Format: ${FORMAT}, team size: ${TEAM_SIZE}`);
+console.log(`[demo] Pokemon Battle Demo on http://localhost:${PORT}/`);
+console.log(`[demo] Turn delay: ${TURN_DELAY}ms, team size: ${TEAM_SIZE}`);
 
-setTimeout(bootstrapDiscovery, 3_000);
-setInterval(bootstrapDiscovery, 10 * 60 * 1000);
-
-// Clean up finished battles older than 30 minutes
-setInterval(() => {
-  const cutoff = Date.now() - 30 * 60 * 1000;
-  for (const [id, session] of battles) {
-    if (session.battleOver && session.startedAt < cutoff) {
-      battles.delete(id);
-    }
-  }
-}, 5 * 60 * 1000);
+currentDemo = new DemoBattle();
+await new Promise(r => setTimeout(r, 500));
+currentDemo.autoPlay();
+console.log(`[demo] Auto-battle started: ${currentDemo.battleId.slice(0, 8)}`);
