@@ -18,7 +18,9 @@ const { Dex, BattleStreams, Teams } = require("@pkmn/sim");
 const { TeamGenerators } = require("@pkmn/randoms");
 Teams.setGeneratorFactory(TeamGenerators);
 
-const PORT = parseInt(process.env.PEER_PORT ?? "9099");
+const PORT = parseInt(process.env.PORT ?? process.env.PEER_PORT ?? "9099");
+const WORLD_ID = process.env.WORLD_ID ?? "pokemon-arena";
+const WORLD_NAME = process.env.WORLD_NAME ?? "Pokemon Battle Arena";
 const DATA_DIR = process.env.DATA_DIR ?? "/tmp/pokemon-demo";
 const TEAM_SIZE = parseInt(process.env.TEAM_SIZE ?? "3");
 const GEN = parseInt(process.env.GEN ?? "5");
@@ -343,6 +345,10 @@ fastify.get("/demo.css", async (req, reply) => {
   const css = fs.readFileSync(path.join(webDir, "demo.css"), "utf8");
   return reply.type("text/css").send(css);
 });
+
+fastify.get("/peer/ping", async () => ({
+  ok: true, ts: Date.now(), worldId: WORLD_ID, worldName: WORLD_NAME,
+}));
 
 fastify.post("/demo/start", async () => {
   currentDemo = new DemoBattle();
