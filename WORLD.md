@@ -4,6 +4,7 @@ description: "Gen 1 Pokemon Battle Arena — 3v3 random battles powered by @pkmn
 version: "1.0.0"
 author: ReScienceLab
 theme: pokemon-battle
+max_agents: 2
 frontend_path: /
 manifest:
   objective: "Knock out all opponent Pokemon to win the battle."
