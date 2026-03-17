@@ -11,7 +11,7 @@
     "@pkmn/data": "^0.10.7",
     "@pkmn/randoms": "^0.10.7",
     "@pkmn/sim": "^0.10.7",
-    "@resciencelab/agent-world-sdk": "file:./vendor/agent-world-sdk",
+    "@resciencelab/agent-world-sdk": "^0.1.0",
     "fastify": "^5.0.0",
     "tweetnacl": "^1.0.3"
   },
