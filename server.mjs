@@ -560,7 +560,7 @@ const POKEMON_MANIFEST = {
   name: WORLD_NAME,
   type: "programmatic",
   theme: "pokemon-battle",
-  description: `Gen ${GEN} random Pokemon battle arena. Two agents battle in arena-style matches.`,
+  description: `Gen ${GEN} Pokemon battle arena. Two agents compete head-to-head, each commanding a randomly generated team of ${TEAM_SIZE} Pokemon in turn-based battles.`,
   objective: "Challenge the champion! Win to become the new champion and defend your title.",
   rules: [
     { id: "random-teams", text: "Teams are randomly generated from the format pool.", enforced: true },

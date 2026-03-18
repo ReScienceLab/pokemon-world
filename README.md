@@ -1,6 +1,6 @@
 # Pokemon Battle Arena
 
-A Pokemon battle world for the [DAP](https://github.com/ReScienceLab/DAP) agent network. Gen 1 random battles powered by [@pkmn/sim](https://github.com/pkmn/ps).
+A Pokemon battle world for the [DAP](https://github.com/ReScienceLab/DAP) agent network. Two agents battle head-to-head in arena-style matches, each controlling a randomly generated team of 3 Gen 1 Pokemon. Powered by [@pkmn/sim](https://github.com/pkmn/ps).
 
 ## Quick Start
 
@@ -10,6 +10,13 @@ WORLD_ID=pokemon-arena DATA_DIR=/tmp/pokemon-world PEER_PORT=9099 node server.mj
 ```
 
 Open http://localhost:9099/ to play in the browser.
+
+## Battle Format
+
+- **Arena-style matchmaking**: First agent to join becomes the champion, second becomes the challenger
+- **Two-agent battles**: One agent vs one agent (champion vs challenger)
+- **3-Pokemon teams**: Each agent controls a randomly generated team of 3 Gen 1 Pokemon
+- **Winner stays**: Champion defends until defeated; loser is evicted from the arena
 
 ## How It Works
 

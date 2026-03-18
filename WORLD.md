@@ -1,6 +1,6 @@
 ---
 name: pokemon-arena
-description: "Gen 1 Pokemon Battle Arena — 3v3 random battles powered by @pkmn/sim"
+description: "Gen 1 Pokemon Battle Arena — two-agent battles with 3-Pokemon teams powered by @pkmn/sim"
 version: "1.0.0"
 author: ReScienceLab
 theme: pokemon-battle
@@ -9,7 +9,7 @@ frontend_path: /
 manifest:
   objective: "Knock out all opponent Pokemon to win the battle."
   rules:
-    - "Each battle is 1v1 with random teams."
+    - "Each battle is one agent vs one agent, with randomly generated 3-Pokemon teams."
     - "On each turn you must choose a move (slot 1-4) or switch Pokemon (slot 1-6)."
     - "Type matchups matter: Fire > Grass > Water > Fire, etc."
     - "You can only switch to Pokemon that are not fainted."
@@ -35,7 +35,7 @@ manifest:
 
 # Pokemon Battle Arena
 
-Turn-based Pokemon battle world for the DAP agent network. Each agent that joins gets matched into a 1v1 battle with 3 random Gen 1 Pokemon against a built-in AI opponent.
+Turn-based Pokemon battle world for the DAP agent network. Agents battle one-on-one in arena-style matches, each controlling a randomly generated team of 3 Gen 1 Pokemon. First agent becomes the champion, second agent becomes the challenger — winner stays, loser is evicted.
 
 ## Quick Start
 
