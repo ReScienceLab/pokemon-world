@@ -9,6 +9,43 @@ var lastProtoLen = 0;
 var battle = null;
 var battleReady = false;
 
+var STRINGS = {
+  "battle.fainted": "FNT",
+  "battle.empty": "—",
+  "battle.bp": " BP",
+  "battle.pp": " PP",
+  "battle.tie": "It's a tie!",
+  "battle.winner": "{name} wins!",
+  "header.phase_demo": "DEMO",
+  "header.phase_waiting": "WAITING",
+  "header.phase_battle": "BATTLE",
+  "header.phase_battleOver": "BATTLE OVER",
+  "waiting.champion": "CHAMPION",
+  "waiting.challenger": "CHALLENGER",
+  "waiting.p1": "PLAYER 1",
+  "waiting.status_starting": "Match starting...",
+  "waiting.status_waiting": "Waiting for challenger...",
+  "agent.name_alpha": "AGENT ALPHA",
+  "agent.name_beta": "AGENT BETA",
+  "agent.badge_ai": "AI",
+  "agent.badge_champion": "CHAMPION",
+  "agent.badge_p1": "P1",
+  "agent.badge_p2": "P2",
+  "agent.name_empty": "Empty Slot",
+  "agent.name_waiting": "Waiting...",
+  "agent.badge_waiting": "..."
+};
+
+function t(key, params) {
+  var s = STRINGS[key] || key;
+  if (params) {
+    Object.keys(params).forEach(function(k) {
+      s = s.replace("{" + k + "}", params[k]);
+    });
+  }
+  return s;
+}
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -101,7 +138,7 @@ function renderTeam(containerId, team) {
       p.name +
       "</span>" +
       '<span class="mon-hp">' +
-      (p.fainted ? "FNT" : p.hp + "/" + p.maxHp) +
+      (p.fainted ? t("battle.fainted") : p.hp + "/" + p.maxHp) +
       "</span>" +
       '<div class="mon-hp-bar"><div class="mon-hp-fill ' +
       hpClass +
@@ -120,7 +157,7 @@ function renderMoves(panelId, nameId, typesId, moves, active, choice) {
     nameEl.textContent = active.name;
     typesEl.textContent = (active.types || []).join("/");
   } else {
-    nameEl.textContent = "---";
+    nameEl.textContent = t("battle.empty");
     typesEl.textContent = "";
   }
   var chosenSlot = -1;
@@ -141,16 +178,20 @@ function renderMoves(panelId, nameId, typesId, moves, active, choice) {
       m.type +
       " " +
       (m.basePower || "—") +
-      "BP " +
+      t("battle.bp") +
+      " " +
       m.pp +
       "/" +
       m.maxPp +
-      "PP</span>";
+      t("battle.pp") +
+      "</span>";
     grid.appendChild(div);
   });
   if (!moves || moves.length === 0) {
     grid.innerHTML =
-      '<div class="move-btn disabled"><span class="move-name">---</span></div>';
+      '<div class="move-btn disabled"><span class="move-name">' +
+      t("battle.empty") +
+      "</span></div>";
   }
 }
 
@@ -175,10 +216,10 @@ function renderArenaStatus(data) {
   if (!statusEl) return;
   var phase = data.phase || "idle";
   var mode = data.mode || "demo";
-  var label = mode === "demo" ? "DEMO" : phase.toUpperCase();
-  if (phase === "waiting") label = "WAITING FOR CHALLENGER";
-  else if (phase === "battle") label = "BATTLE IN PROGRESS";
-  else if (phase === "battleOver") label = "BATTLE OVER";
+  var label = mode === "demo" ? t("header.phase_demo") : phase.toUpperCase();
+  if (phase === "waiting") label = t("header.phase_waiting");
+  else if (phase === "battle") label = t("header.phase_battle");
+  else if (phase === "battleOver") label = t("header.phase_battleOver");
   statusEl.textContent = label;
   statusEl.className = "arena-phase phase-" + phase + " mode-" + mode;
 
@@ -256,14 +297,14 @@ function renderWaitingOverlay(data) {
     p1Trainer.style.backgroundImage = "url(" + SPRITE_BASE + name1 + ".png)";
     p1Trainer.className = "trainer-sprite ready";
     p1Trainer.innerHTML = "";
-    p1Label.textContent = "CHAMPION";
+    p1Label.textContent = t("waiting.champion");
     p1Id.textContent = data.champion.name || shortId(data.champion.agentId);
   } else {
     p1Trainer.style.backgroundImage = "";
     p1Trainer.className = "trainer-sprite empty";
     p1Trainer.innerHTML = '<div class="empty-silhouette">?</div>';
-    p1Label.textContent = "P1";
-    p1Id.textContent = "---";
+    p1Label.textContent = t("waiting.p1");
+    p1Id.textContent = t("battle.empty");
   }
 
   if (data.challenger) {
@@ -271,18 +312,18 @@ function renderWaitingOverlay(data) {
     p2Trainer.style.backgroundImage = "url(" + SPRITE_BASE + name2 + ".png)";
     p2Trainer.className = "trainer-sprite ready";
     p2Trainer.innerHTML = "";
-    p2Label.textContent = "CHALLENGER";
+    p2Label.textContent = t("waiting.challenger");
     p2Id.textContent = data.challenger.name || shortId(data.challenger.agentId);
     el("p2-trainer").parentElement.classList.add("filled");
-    vsStatus.textContent = "BATTLE STARTING!";
+    vsStatus.textContent = t("waiting.status_starting");
   } else {
     p2Trainer.style.backgroundImage = "";
     p2Trainer.className = "trainer-sprite empty";
     p2Trainer.innerHTML = '<div class="empty-silhouette">?</div>';
-    p2Label.textContent = "CHALLENGER";
-    p2Id.textContent = "---";
+    p2Label.textContent = t("waiting.challenger");
+    p2Id.textContent = t("battle.empty");
     el("p2-trainer").parentElement.classList.remove("filled");
-    vsStatus.textContent = "WAITING...";
+    vsStatus.textContent = t("waiting.status_waiting");
   }
 }
 
@@ -297,14 +338,14 @@ function renderAgentSlots(data) {
   var p2Col = el("p2-col");
 
   if (mode === "demo") {
-    p1Name.textContent = "AGENT ALPHA (AI)";
-    p2Name.textContent = "AGENT BETA (AI)";
+    p1Name.textContent = t("agent.name_alpha");
+    p2Name.textContent = t("agent.name_beta");
     if (p1Badge) {
-      p1Badge.textContent = "AI";
+      p1Badge.textContent = t("agent.badge_ai");
       p1Badge.className = "agent-badge ai";
     }
     if (p2Badge) {
-      p2Badge.textContent = "AI";
+      p2Badge.textContent = t("agent.badge_ai");
       p2Badge.className = "agent-badge ai";
     }
     p1Col.classList.remove("waiting-slot", "ready-slot");
@@ -315,15 +356,15 @@ function renderAgentSlots(data) {
   if (data.champion) {
     p1Name.textContent = data.champion.name || shortId(data.champion.agentId);
     if (p1Badge) {
-      p1Badge.textContent = "CHAMPION";
+      p1Badge.textContent = t("agent.badge_champion");
       p1Badge.className = "agent-badge online";
     }
     p1Col.classList.add("ready-slot");
     p1Col.classList.remove("waiting-slot");
   } else {
-    p1Name.textContent = "EMPTY SLOT";
+    p1Name.textContent = t("agent.name_empty");
     if (p1Badge) {
-      p1Badge.textContent = "P1";
+      p1Badge.textContent = t("agent.badge_p1");
       p1Badge.className = "agent-badge offline";
     }
     p1Col.classList.add("waiting-slot");
@@ -331,25 +372,26 @@ function renderAgentSlots(data) {
   }
 
   if (data.challenger) {
-    p2Name.textContent = data.challenger.name || shortId(data.challenger.agentId);
+    p2Name.textContent =
+      data.challenger.name || shortId(data.challenger.agentId);
     if (p2Badge) {
-      p2Badge.textContent = "AGENT P2";
+      p2Badge.textContent = t("agent.badge_p2");
       p2Badge.className = "agent-badge online";
     }
     p2Col.classList.add("ready-slot");
     p2Col.classList.remove("waiting-slot");
   } else if (phase === "waiting") {
-    p2Name.textContent = "WAITING FOR CHALLENGER...";
+    p2Name.textContent = t("agent.name_waiting");
     if (p2Badge) {
-      p2Badge.textContent = "???";
+      p2Badge.textContent = t("agent.badge_waiting");
       p2Badge.className = "agent-badge pulse";
     }
     p2Col.classList.add("waiting-slot");
     p2Col.classList.remove("ready-slot");
   } else {
-    p2Name.textContent = "EMPTY SLOT";
+    p2Name.textContent = t("agent.name_empty");
     if (p2Badge) {
-      p2Badge.textContent = "P2";
+      p2Badge.textContent = t("agent.badge_p2");
       p2Badge.className = "agent-badge offline";
     }
     p2Col.classList.add("waiting-slot");
@@ -414,7 +456,9 @@ async function poll() {
     if (b.battleOver) {
       el("result-overlay").classList.remove("hidden");
       el("result-text").textContent =
-        b.winner === "tie" ? "TIE!" : b.winner + " WINS!";
+        b.winner === "tie"
+          ? t("battle.tie")
+          : t("battle.winner", { name: b.winner });
     } else {
       el("result-overlay").classList.add("hidden");
     }

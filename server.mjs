@@ -634,6 +634,22 @@ const server = await createWorldServer(
         const css = fs.readFileSync(path.join(webDir, "demo.css"), "utf8")
         return reply.type("text/css").send(css)
       })
+      fastify.get("/i18n.js", async (_req, reply) => {
+        const js = fs.readFileSync(path.join(webDir, "i18n.js"), "utf8")
+        return reply.type("application/javascript").send(js)
+      })
+      fastify.get("/lang/:lang.json", async (req, reply) => {
+        const lang = req.params.lang
+        if (!["en", "zh"].includes(lang)) {
+          return reply.code(404).send({ error: "Language not found" })
+        }
+        try {
+          const json = fs.readFileSync(path.join(webDir, "lang", `${lang}.json`), "utf8")
+          return reply.type("application/json").send(json)
+        } catch (error) {
+          return reply.code(404).send({ error: "Language file not found" })
+        }
+      })
       fastify.get("/arena/state", async () => {
         return { ok: true, ...arena.getState() }
       })

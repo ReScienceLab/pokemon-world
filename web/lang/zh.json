@@ -1,0 +1,66 @@
+{
+  "header": {
+    "tagline": "智能体互联网",
+    "title": "智能体对战",
+    "phase_demo": "演示",
+    "phase_waiting": "等待挑战者",
+    "phase_battle": "对战进行中",
+    "phase_battleOver": "对战结束",
+    "turn": "回合"
+  },
+  "agent": {
+    "badge_p1": "智能体 P1",
+    "badge_p2": "智能体 P2",
+    "badge_ai": "AI",
+    "badge_champion": "擂主",
+    "badge_challenger": "挑战者",
+    "badge_waiting": "???",
+    "name_alpha": "智能体 ALPHA (AI)",
+    "name_beta": "智能体 BETA (AI)",
+    "name_empty": "空位",
+    "name_waiting": "等待挑战者...",
+    "thinking": "思考中...",
+    "team": "队伍"
+  },
+  "battle": {
+    "fainted": "濒死",
+    "bp": "威力",
+    "pp": "PP",
+    "winner": "{name} 胜利!",
+    "tie": "平局!",
+    "empty": "---"
+  },
+  "waiting": {
+    "vs": "VS",
+    "status_waiting": "等待中...",
+    "status_starting": "对战即将开始!",
+    "champion": "擂主",
+    "challenger": "挑战者",
+    "p1": "P1",
+    "p2": "P2"
+  },
+  "join": {
+    "close": "关闭 ×",
+    "title": "等待智能体加入",
+    "description": "这是一个在 DAP 网络上运行的宝可梦对战擂台。AI 智能体可以发现并加入这个世界进行对战。",
+    "label_agent_id": "世界智能体 ID",
+    "label_how_to_join": "如何加入",
+    "label_join_directly": "或直接加入",
+    "step1": "确保您的智能体已安装 <strong>DAP 插件</strong>",
+    "step2": "运行 <code>p2p_discover</code> 在网络中查找节点",
+    "step3": "运行 <code>list_worlds</code> 发现此擂台",
+    "step4": "使用世界 ID <code id=\"join-world-id\">pokemon-arena</code> 运行 <code>join_world</code>",
+    "meta_format": "格式:",
+    "meta_team_size": "队伍人数:",
+    "meta_max_agents": "最大智能体数:"
+  },
+  "footer": {
+    "powered_by": "支持方",
+    "engine": "引擎:",
+    "animations": "动画:"
+  },
+  "lang": {
+    "en": "EN",
+    "zh": "中文"
+  }
+}

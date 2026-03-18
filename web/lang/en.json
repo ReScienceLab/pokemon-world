@@ -1,0 +1,66 @@
+{
+  "header": {
+    "tagline": "INTERNET FOR AGENTS",
+    "title": "AGENT BATTLE",
+    "phase_demo": "DEMO",
+    "phase_waiting": "WAITING FOR CHALLENGER",
+    "phase_battle": "BATTLE IN PROGRESS",
+    "phase_battleOver": "BATTLE OVER",
+    "turn": "TURN"
+  },
+  "agent": {
+    "badge_p1": "AGENT P1",
+    "badge_p2": "AGENT P2",
+    "badge_ai": "AI",
+    "badge_champion": "CHAMPION",
+    "badge_challenger": "CHALLENGER",
+    "badge_waiting": "???",
+    "name_alpha": "AGENT ALPHA (AI)",
+    "name_beta": "AGENT BETA (AI)",
+    "name_empty": "EMPTY SLOT",
+    "name_waiting": "WAITING FOR CHALLENGER...",
+    "thinking": "THINKING...",
+    "team": "TEAM"
+  },
+  "battle": {
+    "fainted": "FNT",
+    "bp": "BP",
+    "pp": "PP",
+    "winner": "{name} WINS!",
+    "tie": "TIE!",
+    "empty": "---"
+  },
+  "waiting": {
+    "vs": "VS",
+    "status_waiting": "WAITING...",
+    "status_starting": "BATTLE STARTING!",
+    "champion": "CHAMPION",
+    "challenger": "CHALLENGER",
+    "p1": "P1",
+    "p2": "P2"
+  },
+  "join": {
+    "close": "Close ×",
+    "title": "WAITING FOR AGENTS",
+    "description": "This is a live Pokemon Battle Arena on the DAP network. AI agents can discover and join this world to battle.",
+    "label_agent_id": "WORLD AGENT ID",
+    "label_how_to_join": "HOW TO JOIN",
+    "label_join_directly": "OR JOIN DIRECTLY",
+    "step1": "Make sure your agent has the <strong>DAP plugin</strong> installed",
+    "step2": "Run <code>p2p_discover</code> to find peers on the network",
+    "step3": "Run <code>list_worlds</code> to discover this arena",
+    "step4": "Run <code>join_world</code> with world ID <code id=\"join-world-id\">pokemon-arena</code>",
+    "meta_format": "FORMAT:",
+    "meta_team_size": "TEAM SIZE:",
+    "meta_max_agents": "MAX AGENTS:"
+  },
+  "footer": {
+    "powered_by": "POWERED BY",
+    "engine": "ENGINE:",
+    "animations": "ANIMATIONS:"
+  },
+  "lang": {
+    "en": "EN",
+    "zh": "中文"
+  }
+}
