@@ -9,45 +9,12 @@ var lastProtoLen = 0;
 var battle = null;
 var battleReady = false;
 
-var STRINGS = {
-  "battle.fainted": "FNT",
-  "battle.empty": "—",
-  "battle.bp": " BP",
-  "battle.pp": " PP",
-  "battle.tie": "It's a tie!",
-  "battle.winner": "{name} wins!",
-  "header.phase_demo": "DEMO",
-  "header.phase_waiting": "WAITING",
-  "header.phase_battle": "BATTLE",
-  "header.phase_battleOver": "BATTLE OVER",
-  "waiting.champion": "CHAMPION",
-  "waiting.challenger": "CHALLENGER",
-  "waiting.p1": "PLAYER 1",
-  "waiting.status_starting": "Match starting...",
-  "waiting.status_waiting": "Waiting for challenger...",
-  "agent.name_alpha": "AGENT ALPHA",
-  "agent.name_beta": "AGENT BETA",
-  "agent.badge_ai": "AI",
-  "agent.badge_champion": "CHAMPION",
-  "agent.badge_p1": "P1",
-  "agent.badge_p2": "P2",
-  "agent.name_empty": "Empty Slot",
-  "agent.name_waiting": "Waiting...",
-  "agent.badge_waiting": "..."
-};
-
-function t(key, params) {
-  var s = STRINGS[key] || key;
-  if (params) {
-    Object.keys(params).forEach(function(k) {
-      s = s.replace("{" + k + "}", params[k]);
-    });
-  }
-  return s;
-}
-
 function el(id) {
   return document.getElementById(id);
+}
+
+function t(key, vars) {
+  return window.t ? window.t(key, vars) : key;
 }
 function toId(n) {
   return (n || "").toLowerCase().replace(/[^a-z0-9]/g, "");
@@ -130,13 +97,19 @@ function renderTeam(containerId, team) {
       "team-mon" + (p.active ? " active" : "") + (p.fainted ? " fainted" : "");
     var hpPct = p.maxHp > 0 ? (p.hp / p.maxHp) * 100 : 0;
     var hpClass = getHPClass(hpPct);
+
+    var nameSpan =
+      '<span class="mon-name" data-pokemon-name="' +
+      p.name +
+      '">' +
+      p.name +
+      "</span>";
+
     div.innerHTML =
       '<span class="team-icon" style="' +
       iconStyle(p.name) +
       '"></span>' +
-      '<span class="mon-name">' +
-      p.name +
-      "</span>" +
+      nameSpan +
       '<span class="mon-hp">' +
       (p.fainted ? t("battle.fainted") : p.hp + "/" + p.maxHp) +
       "</span>" +
@@ -146,6 +119,22 @@ function renderTeam(containerId, team) {
       hpPct +
       '%"></div></div>';
     container.appendChild(div);
+
+    // Translate Pokemon name if in Chinese mode
+    if (
+      window.pokemonI18n &&
+      window.i18n &&
+      window.i18n.getCurrentLanguage() === "zh"
+    ) {
+      var nameEl = div.querySelector(".mon-name");
+      window.pokemonI18n
+        .getPokemonName(p.name, "zh")
+        .then(function (translatedName) {
+          if (nameEl && nameEl.getAttribute("data-pokemon-name") === p.name) {
+            nameEl.textContent = translatedName;
+          }
+        });
+    }
   });
 }
 
@@ -155,9 +144,26 @@ function renderMoves(panelId, nameId, typesId, moves, active, choice) {
   var typesEl = el(typesId);
   if (active) {
     nameEl.textContent = active.name;
+    nameEl.setAttribute("data-pokemon-name", active.name);
     typesEl.textContent = (active.types || []).join("/");
+
+    // Translate Pokemon name if in Chinese mode
+    if (
+      window.pokemonI18n &&
+      window.i18n &&
+      window.i18n.getCurrentLanguage() === "zh"
+    ) {
+      window.pokemonI18n
+        .getPokemonName(active.name, "zh")
+        .then(function (translatedName) {
+          if (nameEl.getAttribute("data-pokemon-name") === active.name) {
+            nameEl.textContent = translatedName;
+          }
+        });
+    }
   } else {
     nameEl.textContent = t("battle.empty");
+    nameEl.removeAttribute("data-pokemon-name");
     typesEl.textContent = "";
   }
   var chosenSlot = -1;
@@ -520,6 +526,114 @@ function updateJoinPanel(data) {
   }
 }
 
+// ── World Ledger ─────────────────────────────────────────────────────
+var ledgerExpanded = true;
+var lastLedgerTotal = 0;
+
+function toggleLedger() {
+  ledgerExpanded = !ledgerExpanded;
+  var body = el("ledger-body");
+  var toggle = el("ledger-toggle");
+  if (ledgerExpanded) {
+    body.classList.remove("collapsed");
+    toggle.textContent = "▼";
+  } else {
+    body.classList.add("collapsed");
+    toggle.textContent = "▶";
+  }
+}
+
+function timeAgo(ts) {
+  var diff = Date.now() - ts;
+  if (diff < 60000) return Math.floor(diff / 1000) + "s ago";
+  if (diff < 3600000) return Math.floor(diff / 60000) + "m ago";
+  if (diff < 86400000) return Math.floor(diff / 3600000) + "h ago";
+  return new Date(ts).toLocaleDateString();
+}
+
+function shortHash(h) {
+  return h ? h.slice(0, 8) : "—";
+}
+
+function renderLedgerAgents(agents) {
+  var container = el("ledger-agents");
+  if (!container) return;
+  container.innerHTML = "";
+  agents.forEach(function (a) {
+    var div = document.createElement("div");
+    div.className = "ledger-agent";
+    div.innerHTML =
+      '<span class="agent-dot ' +
+      (a.online ? "online" : "offline") +
+      '"></span>' +
+      '<span class="agent-alias">' +
+      (a.alias || shortId(a.agentId)) +
+      "</span>" +
+      '<span class="agent-stats">' +
+      a.joins +
+      " joins · " +
+      a.actions +
+      " actions · " +
+      timeAgo(a.lastSeen) +
+      "</span>";
+    container.appendChild(div);
+  });
+  if (agents.length === 0) {
+    container.innerHTML =
+      '<span style="color:#888;font-size:12px">No agents have joined yet</span>';
+  }
+}
+
+function renderLedgerEntries(entries) {
+  var container = el("ledger-entries");
+  if (!container) return;
+  container.innerHTML = "";
+  entries.forEach(function (e) {
+    var div = document.createElement("div");
+    div.className = "ledger-entry";
+    var evType = e.event.replace("world.", "");
+    div.innerHTML =
+      '<span class="le-seq">#' +
+      e.seq +
+      "</span>" +
+      '<span class="le-time">' +
+      timeAgo(e.timestamp) +
+      "</span>" +
+      '<span class="le-event ev-' +
+      evType +
+      '">' +
+      e.event +
+      "</span>" +
+      '<span class="le-agent">' +
+      (e.alias || shortId(e.agentId)) +
+      "</span>" +
+      '<span class="le-hash">' +
+      shortHash(e.hash) +
+      "</span>";
+    container.appendChild(div);
+  });
+  container.scrollTop = container.scrollHeight;
+}
+
+async function pollLedger() {
+  try {
+    var agentsResp = await fetch(API + "/world/agents");
+    var agentsData = await agentsResp.json();
+    if (agentsData.ok) renderLedgerAgents(agentsData.agents);
+
+    var ledgerResp = await fetch(API + "/world/ledger?limit=50");
+    var ledgerData = await ledgerResp.json();
+    if (ledgerData.ok) {
+      if (ledgerData.total !== lastLedgerTotal) {
+        lastLedgerTotal = ledgerData.total;
+        renderLedgerEntries(ledgerData.entries);
+      }
+      el("ledger-chain-head").textContent = shortHash(ledgerData.chainHead);
+      el("ledger-total").textContent = ledgerData.total;
+    }
+  } catch (e) {}
+}
+
 // Start — fetch initial state, init Showdown, begin polling
 (async function () {
   try {
@@ -537,5 +651,7 @@ function updateJoinPanel(data) {
   }
   loadJoinInfo();
   poll();
+  pollLedger();
   pollTimer = setInterval(poll, POLL_MS);
+  setInterval(pollLedger, 5000);
 })();

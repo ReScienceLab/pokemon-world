@@ -154,6 +154,29 @@
     </div>
   </div>
 
+  <div id="ledger-panel" class="ledger-panel">
+    <div class="ledger-header" onclick="toggleLedger()">
+      <h3>WORLD LEDGER</h3>
+      <span class="ledger-toggle" id="ledger-toggle">▼</span>
+    </div>
+    <div id="ledger-body" class="ledger-body">
+      <div class="ledger-section">
+        <div class="ledger-label">AGENTS</div>
+        <div id="ledger-agents" class="ledger-agents"></div>
+      </div>
+      <div class="ledger-section">
+        <div class="ledger-label">ACTIVITY LOG</div>
+        <div id="ledger-entries" class="ledger-entries"></div>
+      </div>
+      <div class="ledger-chain">
+        <span class="chain-label">CHAIN HEAD</span>
+        <code id="ledger-chain-head" class="chain-hash">—</code>
+        <span class="chain-label">ENTRIES</span>
+        <code id="ledger-total">0</code>
+      </div>
+    </div>
+  </div>
+
   <footer>
     <span><span data-i18n="footer.powered_by">POWERED BY</span> <a href="https://github.com/ReScienceLab/DAP">DAP</a></span>
     <span class="sep">|</span>
@@ -183,6 +206,7 @@
 <script src="https://play.pokemonshowdown.com/js/battle.js?a7"></script>
 <script type="module">
   import i18n from '/i18n.js';
+  import pokemonI18n from '/pokemon-i18n.js';
 
   // Initialize i18n
   await i18n.init();
@@ -190,6 +214,14 @@
   // Make i18n globally available
   window.i18n = i18n;
   window.t = (key, vars) => i18n.t(key, vars);
+  window.pokemonI18n = pokemonI18n;
+
+  // Preload common Pokemon names if Chinese
+  if (i18n.getCurrentLanguage() === 'zh') {
+    pokemonI18n.preloadGen5Common().catch(err => {
+      console.warn('Failed to preload Pokemon names:', err);
+    });
+  }
 
   // Setup language switcher
   const langBtns = document.querySelectorAll('.lang-btn');
@@ -209,6 +241,18 @@
           el.innerHTML = i18n.t(key);
         }
       });
+
+      // Preload Pokemon names if switching to Chinese
+      if (lang === 'zh') {
+        pokemonI18n.preloadGen5Common().catch(err => {
+          console.warn('Failed to preload Pokemon names:', err);
+        });
+      }
+
+      // Trigger a re-poll to update Pokemon names
+      if (window.poll) {
+        window.poll();
+      }
     });
   });
 
