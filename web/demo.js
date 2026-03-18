@@ -257,7 +257,7 @@ function renderWaitingOverlay(data) {
     p1Trainer.className = "trainer-sprite ready";
     p1Trainer.innerHTML = "";
     p1Label.textContent = "CHAMPION";
-    p1Id.textContent = shortId(data.champion.agentId);
+    p1Id.textContent = data.champion.name || shortId(data.champion.agentId);
   } else {
     p1Trainer.style.backgroundImage = "";
     p1Trainer.className = "trainer-sprite empty";
@@ -272,7 +272,7 @@ function renderWaitingOverlay(data) {
     p2Trainer.className = "trainer-sprite ready";
     p2Trainer.innerHTML = "";
     p2Label.textContent = "CHALLENGER";
-    p2Id.textContent = shortId(data.challenger.agentId);
+    p2Id.textContent = data.challenger.name || shortId(data.challenger.agentId);
     el("p2-trainer").parentElement.classList.add("filled");
     vsStatus.textContent = "BATTLE STARTING!";
   } else {
@@ -313,9 +313,9 @@ function renderAgentSlots(data) {
   }
 
   if (data.champion) {
-    p1Name.textContent = "CHAMPION " + shortId(data.champion.agentId);
+    p1Name.textContent = data.champion.name || shortId(data.champion.agentId);
     if (p1Badge) {
-      p1Badge.textContent = "AGENT P1";
+      p1Badge.textContent = "CHAMPION";
       p1Badge.className = "agent-badge online";
     }
     p1Col.classList.add("ready-slot");
@@ -331,7 +331,7 @@ function renderAgentSlots(data) {
   }
 
   if (data.challenger) {
-    p2Name.textContent = "CHALLENGER " + shortId(data.challenger.agentId);
+    p2Name.textContent = data.challenger.name || shortId(data.challenger.agentId);
     if (p2Badge) {
       p2Badge.textContent = "AGENT P2";
       p2Badge.className = "agent-badge online";

@@ -354,27 +354,27 @@ class ArenaManager {
     }
   }
 
-  join(agentId) {
+  join(agentId, name) {
     if (this.champion?.agentId === agentId || this.challenger?.agentId === agentId) {
       return { error: "Already in arena" }
     }
 
+    const displayName = name || agentId.slice(0, 8)
+
     if (this.mode === "demo" || this.phase === "idle") {
       this.mode = "live"
       this.phase = "waiting"
-      this.champion = { agentId, side: "p1" }
+      this.champion = { agentId, name: displayName, side: "p1" }
       this.challenger = null
       this.battle = null
-      const tag = agentId.slice(0, 12)
-      console.log(`[arena] ${tag} joined as champion — waiting for challenger`)
+      console.log(`[arena] ${displayName} joined as champion — waiting for challenger`)
       return { ok: true, role: "champion", phase: this.phase }
     }
 
     if (this.phase === "waiting" && !this.challenger) {
-      this.challenger = { agentId, side: "p2" }
+      this.challenger = { agentId, name: displayName, side: "p2" }
       this._startBattle()
-      const tag = agentId.slice(0, 12)
-      console.log(`[arena] ${tag} joined as challenger — battle starting`)
+      console.log(`[arena] ${displayName} joined as challenger — battle starting`)
       return { ok: true, role: "challenger", phase: this.phase }
     }
 
@@ -442,10 +442,10 @@ class ArenaManager {
       // Challenger wins — becomes new champion
       const loserId = this.champion?.agentId
       this.stats.wins[this.challenger.agentId] = (this.stats.wins[this.challenger.agentId] || 0) + 1
-      this.champion = { agentId: this.challenger.agentId, side: "p1" }
+      this.champion = { agentId: this.challenger.agentId, name: this.challenger.name, side: "p1" }
       this.challenger = null
       this.phase = "waiting"
-      console.log(`[arena] Challenger wins! New champion: ${this.champion.agentId.slice(0, 8)}`)
+      console.log(`[arena] Challenger wins! New champion: ${this.champion.name}`)
       if (loserId) this.onEvict(loserId, "loser")
     } else {
       // Tie or unknown — evict both, reset
@@ -528,8 +528,8 @@ class ArenaManager {
     return {
       phase: this.phase,
       mode: this.mode,
-      champion: this.champion ? { agentId: this.champion.agentId } : null,
-      challenger: this.challenger ? { agentId: this.challenger.agentId } : null,
+      champion: this.champion ? { agentId: this.champion.agentId, name: this.champion.name } : null,
+      challenger: this.challenger ? { agentId: this.challenger.agentId, name: this.challenger.name } : null,
       battle: this.battle?.getFullState() ?? null,
       stats: this.stats,
     }
@@ -654,8 +654,10 @@ const server = await createWorldServer(
     },
   },
   {
-    async onJoin(agentId, _data) {
-      const result = arena.join(agentId)
+    async onJoin(agentId, data) {
+      const rawAlias = data?.alias || data?.name
+      const name = (rawAlias && !rawAlias.startsWith("aw:")) ? rawAlias : `Agent ${agentId.split(":").pop().slice(0, 6)}`
+      const result = arena.join(agentId, name)
       return {
         manifest: POKEMON_MANIFEST,
         state: { ...result, ...arena.getAgentView(agentId) },
