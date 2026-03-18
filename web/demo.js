@@ -9,8 +9,12 @@ var lastProtoLen = 0;
 var battle = null;
 var battleReady = false;
 
-function el(id) { return document.getElementById(id); }
-function toId(n) { return (n || "").toLowerCase().replace(/[^a-z0-9]/g, ""); }
+function el(id) {
+  return document.getElementById(id);
+}
+function toId(n) {
+  return (n || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 function iconStyle(name) {
   if (typeof Dex !== "undefined" && Dex.getPokemonIcon) {
@@ -19,9 +23,17 @@ function iconStyle(name) {
   return "background:url(" + ICON_SHEET + ") no-repeat 0px 0px";
 }
 
+function getHPClass(hpPercent) {
+  if (hpPercent < 20) return "hp-red";
+  if (hpPercent < 50) return "hp-yellow";
+  return "hp-green";
+}
+
 function initShowdownBattle(initialLog) {
   if (typeof Battle === "undefined") {
-    setTimeout(function() { initShowdownBattle(initialLog); }, 200);
+    setTimeout(function () {
+      initShowdownBattle(initialLog);
+    }, 200);
     return;
   }
   var logLines = initialLog || [];
@@ -32,7 +44,7 @@ function initShowdownBattle(initialLog) {
     log: logLines,
     isReplay: true,
     paused: true,
-    autoresize: true
+    autoresize: true,
   });
   battle.setMute(true);
   battle.messageFadeTime = 300;
@@ -66,7 +78,7 @@ function renderThoughts(containerId, thoughts) {
     else if (t.includes("weak") || t.includes("risky")) cls += " warning";
     div.className = cls;
     div.textContent = t;
-    div.style.animationDelay = (i * 80) + "ms";
+    div.style.animationDelay = i * 80 + "ms";
     container.appendChild(div);
   });
   container.scrollTop = container.scrollHeight;
@@ -77,14 +89,25 @@ function renderTeam(containerId, team) {
   container.innerHTML = "";
   (team || []).forEach(function (p) {
     var div = document.createElement("div");
-    div.className = "team-mon" + (p.active ? " active" : "") + (p.fainted ? " fainted" : "");
-    var hpPct = p.maxHp > 0 ? (p.hp / p.maxHp * 100) : 0;
-    var hpColor = hpPct < 25 ? "var(--hp-red)" : hpPct < 50 ? "var(--hp-yellow)" : "var(--hp-green)";
+    div.className =
+      "team-mon" + (p.active ? " active" : "") + (p.fainted ? " fainted" : "");
+    var hpPct = p.maxHp > 0 ? (p.hp / p.maxHp) * 100 : 0;
+    var hpClass = getHPClass(hpPct);
     div.innerHTML =
-      '<span class="team-icon" style="' + iconStyle(p.name) + '"></span>' +
-      '<span class="mon-name">' + p.name + '</span>' +
-      '<span class="mon-hp">' + (p.fainted ? "FNT" : p.hp + "/" + p.maxHp) + '</span>' +
-      '<div class="mon-hp-bar"><div class="mon-hp-fill" style="width:' + hpPct + '%;background:' + hpColor + '"></div></div>';
+      '<span class="team-icon" style="' +
+      iconStyle(p.name) +
+      '"></span>' +
+      '<span class="mon-name">' +
+      p.name +
+      "</span>" +
+      '<span class="mon-hp">' +
+      (p.fainted ? "FNT" : p.hp + "/" + p.maxHp) +
+      "</span>" +
+      '<div class="mon-hp-bar"><div class="mon-hp-fill ' +
+      hpClass +
+      '" style="width:' +
+      hpPct +
+      '%"></div></div>';
     container.appendChild(div);
   });
 }
@@ -101,20 +124,33 @@ function renderMoves(panelId, nameId, typesId, moves, active, choice) {
     typesEl.textContent = "";
   }
   var chosenSlot = -1;
-  if (choice && choice.startsWith("move ")) chosenSlot = parseInt(choice.split(" ")[1]);
+  if (choice && choice.startsWith("move "))
+    chosenSlot = parseInt(choice.split(" ")[1]);
   grid.innerHTML = "";
   (moves || []).forEach(function (m) {
     var div = document.createElement("div");
     var typeCls = "type-" + (m.type || "normal").toLowerCase();
-    var chosen = (m.slot === chosenSlot) ? " chosen" : "";
-    div.className = "move-btn " + typeCls + chosen + (m.disabled ? " disabled" : "");
+    var chosen = m.slot === chosenSlot ? " chosen" : "";
+    div.className =
+      "move-btn " + typeCls + chosen + (m.disabled ? " disabled" : "");
     div.innerHTML =
-      '<span class="move-name">' + m.name + '</span>' +
-      '<span class="move-meta">' + m.type + " " + (m.basePower || "—") + "BP " + m.pp + "/" + m.maxPp + "PP</span>";
+      '<span class="move-name">' +
+      m.name +
+      "</span>" +
+      '<span class="move-meta">' +
+      m.type +
+      " " +
+      (m.basePower || "—") +
+      "BP " +
+      m.pp +
+      "/" +
+      m.maxPp +
+      "PP</span>";
     grid.appendChild(div);
   });
   if (!moves || moves.length === 0) {
-    grid.innerHTML = '<div class="move-btn disabled"><span class="move-name">---</span></div>';
+    grid.innerHTML =
+      '<div class="move-btn disabled"><span class="move-name">---</span></div>';
   }
 }
 
@@ -157,10 +193,30 @@ function shortId(agentId) {
 }
 
 var TRAINER_SPRITES = [
-  "red", "blue", "cynthia", "steven", "lance", "leon",
-  "hilbert", "hilda", "rosa", "nate", "brendan", "may",
-  "dawn", "lucas", "ethan", "lyra", "leaf", "n",
-  "iris", "alder", "diantha", "kukui", "gladion", "marnie"
+  "red",
+  "blue",
+  "cynthia",
+  "steven",
+  "lance",
+  "leon",
+  "hilbert",
+  "hilda",
+  "rosa",
+  "nate",
+  "brendan",
+  "may",
+  "dawn",
+  "lucas",
+  "ethan",
+  "lyra",
+  "leaf",
+  "n",
+  "iris",
+  "alder",
+  "diantha",
+  "kukui",
+  "gladion",
+  "marnie",
 ];
 var SPRITE_BASE = "https://play.pokemonshowdown.com/sprites/trainers/";
 
@@ -168,7 +224,8 @@ function trainerForAgent(agentId) {
   if (!agentId) return null;
   var hex = agentId.split(":").pop() || "";
   var hash = 0;
-  for (var i = 0; i < hex.length; i++) hash = (hash * 31 + hex.charCodeAt(i)) & 0x7fffffff;
+  for (var i = 0; i < hex.length; i++)
+    hash = (hash * 31 + hex.charCodeAt(i)) & 0x7fffffff;
   return TRAINER_SPRITES[hash % TRAINER_SPRITES.length];
 }
 
@@ -242,8 +299,14 @@ function renderAgentSlots(data) {
   if (mode === "demo") {
     p1Name.textContent = "AGENT ALPHA (AI)";
     p2Name.textContent = "AGENT BETA (AI)";
-    if (p1Badge) { p1Badge.textContent = "AI"; p1Badge.className = "agent-badge ai"; }
-    if (p2Badge) { p2Badge.textContent = "AI"; p2Badge.className = "agent-badge ai"; }
+    if (p1Badge) {
+      p1Badge.textContent = "AI";
+      p1Badge.className = "agent-badge ai";
+    }
+    if (p2Badge) {
+      p2Badge.textContent = "AI";
+      p2Badge.className = "agent-badge ai";
+    }
     p1Col.classList.remove("waiting-slot", "ready-slot");
     p2Col.classList.remove("waiting-slot", "ready-slot");
     return;
@@ -251,29 +314,44 @@ function renderAgentSlots(data) {
 
   if (data.champion) {
     p1Name.textContent = "CHAMPION " + shortId(data.champion.agentId);
-    if (p1Badge) { p1Badge.textContent = "AGENT P1"; p1Badge.className = "agent-badge online"; }
+    if (p1Badge) {
+      p1Badge.textContent = "AGENT P1";
+      p1Badge.className = "agent-badge online";
+    }
     p1Col.classList.add("ready-slot");
     p1Col.classList.remove("waiting-slot");
   } else {
     p1Name.textContent = "EMPTY SLOT";
-    if (p1Badge) { p1Badge.textContent = "P1"; p1Badge.className = "agent-badge offline"; }
+    if (p1Badge) {
+      p1Badge.textContent = "P1";
+      p1Badge.className = "agent-badge offline";
+    }
     p1Col.classList.add("waiting-slot");
     p1Col.classList.remove("ready-slot");
   }
 
   if (data.challenger) {
     p2Name.textContent = "CHALLENGER " + shortId(data.challenger.agentId);
-    if (p2Badge) { p2Badge.textContent = "AGENT P2"; p2Badge.className = "agent-badge online"; }
+    if (p2Badge) {
+      p2Badge.textContent = "AGENT P2";
+      p2Badge.className = "agent-badge online";
+    }
     p2Col.classList.add("ready-slot");
     p2Col.classList.remove("waiting-slot");
   } else if (phase === "waiting") {
     p2Name.textContent = "WAITING FOR CHALLENGER...";
-    if (p2Badge) { p2Badge.textContent = "???"; p2Badge.className = "agent-badge pulse"; }
+    if (p2Badge) {
+      p2Badge.textContent = "???";
+      p2Badge.className = "agent-badge pulse";
+    }
     p2Col.classList.add("waiting-slot");
     p2Col.classList.remove("ready-slot");
   } else {
     p2Name.textContent = "EMPTY SLOT";
-    if (p2Badge) { p2Badge.textContent = "P2"; p2Badge.className = "agent-badge offline"; }
+    if (p2Badge) {
+      p2Badge.textContent = "P2";
+      p2Badge.className = "agent-badge offline";
+    }
     p2Col.classList.add("waiting-slot");
     p2Col.classList.remove("ready-slot");
   }
@@ -315,13 +393,28 @@ async function poll() {
     renderThoughts("p2-thoughts", b.p2.thinking);
     renderTeam("p1-team", b.p1.team);
     renderTeam("p2-team", b.p2.team);
-    renderMoves("p1-moves", "p1-active-name", "p1-active-types", b.p1.moves, b.p1.active, b.p1.choice);
-    renderMoves("p2-moves", "p2-active-name", "p2-active-types", b.p2.moves, b.p2.active, b.p2.choice);
+    renderMoves(
+      "p1-moves",
+      "p1-active-name",
+      "p1-active-types",
+      b.p1.moves,
+      b.p1.active,
+      b.p1.choice,
+    );
+    renderMoves(
+      "p2-moves",
+      "p2-active-name",
+      "p2-active-types",
+      b.p2.moves,
+      b.p2.active,
+      b.p2.choice,
+    );
     renderLog(b.log || []);
 
     if (b.battleOver) {
       el("result-overlay").classList.remove("hidden");
-      el("result-text").textContent = b.winner === "tie" ? "TIE!" : b.winner + " WINS!";
+      el("result-text").textContent =
+        b.winner === "tie" ? "TIE!" : b.winner + " WINS!";
     } else {
       el("result-overlay").classList.add("hidden");
     }
@@ -365,23 +458,26 @@ async function loadJoinInfo() {
     el("join-port-cmd").textContent = info.port;
     el("join-format").textContent = info.format;
     el("join-team-size").textContent = info.teamSize;
-  } catch(e) {}
+  } catch (e) {}
 }
 
 function updateJoinPanel(data) {
   var panel = el("join-panel");
-  if (!panel) return;
+  var arena = document.querySelector(".arena");
+  if (!panel || !arena) return;
   var hasRealAgents = data.mode === "live";
   if (hasRealAgents && data.phase === "battle") {
     panel.classList.add("hidden");
+    arena.classList.add("no-join-panel");
   } else {
     panel.classList.remove("hidden");
+    arena.classList.remove("no-join-panel");
     loadJoinInfo();
   }
 }
 
 // Start — fetch initial state, init Showdown, begin polling
-(async function() {
+(async function () {
   try {
     var resp = await fetch(API + "/arena/state");
     var data = await resp.json();
@@ -392,7 +488,7 @@ function updateJoinPanel(data) {
       initShowdownBattle([]);
     }
     if (data.ok) updateJoinPanel(data);
-  } catch(e) {
+  } catch (e) {
     initShowdownBattle([]);
   }
   loadJoinInfo();
