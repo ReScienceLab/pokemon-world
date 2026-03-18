@@ -283,6 +283,275 @@ footer {
 ::-webkit-scrollbar-thumb { background: #333; }
 ::-webkit-scrollbar-thumb:hover { background: var(--green-dim); }
 
+.arena-phase {
+  font-size: 8px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  text-align: center;
+  letter-spacing: 1px;
+}
+.arena-phase.mode-demo { color: var(--text-dim); border-color: var(--text-dim); }
+.arena-phase.phase-waiting { color: var(--yellow); border-color: var(--yellow); }
+.arena-phase.phase-battle { color: var(--green); border-color: var(--green); }
+.arena-phase.phase-battleOver { color: var(--red); border-color: var(--red); }
+
+/* Agent slot states */
+.agent-badge.ai {
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.agent-badge.online {
+  background: rgba(0, 255, 0, 0.15);
+  color: var(--green);
+  border: 1px solid var(--green-dim);
+}
+.agent-badge.offline {
+  background: var(--surface2);
+  color: var(--text-dim);
+  border: 1px solid var(--border);
+}
+.agent-badge.pulse {
+  background: rgba(255, 204, 0, 0.15);
+  color: var(--yellow);
+  border: 1px solid var(--yellow);
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+@keyframes badge-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+.waiting-slot .thinking-box,
+.waiting-slot .team-box {
+  opacity: 0.25;
+}
+.ready-slot .agent-name {
+  color: var(--green);
+}
+
+/* Waiting overlay — arena scene with trainer sprites */
+#waiting-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: radial-gradient(ellipse at center bottom, #0a1a0a 0%, #000 70%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 50;
+  border-radius: 8px;
+  overflow: hidden;
+}
+#waiting-overlay.hidden { display: none; }
+#waiting-overlay::before {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 40%;
+  background: linear-gradient(to top, rgba(0,80,0,0.12), transparent);
+  pointer-events: none;
+}
+.waiting-arena {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 30px;
+  width: 100%;
+  padding: 20px;
+  position: relative;
+}
+.arena-slot {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 160px;
+}
+.trainer-sprite {
+  width: 120px;
+  height: 120px;
+  background-size: contain;
+  background-repeat: no-repeat;
+  background-position: center bottom;
+  image-rendering: pixelated;
+  filter: drop-shadow(0 0 12px rgba(0, 255, 0, 0.3));
+  transition: all 0.5s ease;
+}
+.trainer-sprite.ready {
+  animation: trainer-idle 3s ease-in-out infinite;
+}
+@keyframes trainer-idle {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.trainer-sprite.empty {
+  width: 120px;
+  height: 120px;
+  border: 2px dashed var(--border);
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255,255,255,0.02);
+  filter: none;
+  animation: empty-pulse 3s ease-in-out infinite;
+}
+@keyframes empty-pulse {
+  0%, 100% { border-color: var(--border); }
+  50% { border-color: var(--yellow); }
+}
+.empty-silhouette {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 40px;
+  color: var(--text-dim);
+  opacity: 0.3;
+}
+.slot-label {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 10px;
+  color: var(--green);
+  letter-spacing: 2px;
+}
+.slot-p2 .slot-label {
+  color: var(--text-dim);
+}
+.slot-p2.filled .slot-label {
+  color: var(--red);
+}
+.slot-id {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--text-dim);
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.arena-vs {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+.vs-text {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 28px;
+  color: var(--yellow);
+  text-shadow: 0 0 20px rgba(255, 204, 0, 0.5);
+  letter-spacing: 6px;
+}
+.vs-sub {
+  font-family: 'Press Start 2P', monospace;
+  font-size: 7px;
+  color: var(--text-dim);
+  animation: badge-pulse 2s ease-in-out infinite;
+}
+
+/* Join instructions panel */
+.join-panel {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  background: linear-gradient(to top, rgba(0,0,0,0.98) 60%, rgba(0,0,0,0.85));
+  border-top: 1px solid var(--green-dim);
+  padding: 20px 30px;
+  transition: transform 0.4s ease, opacity 0.4s ease;
+}
+.join-panel.hidden {
+  transform: translateY(100%);
+  opacity: 0;
+  pointer-events: none;
+}
+.join-inner {
+  max-width: 900px;
+  margin: 0 auto;
+}
+.join-panel h2 {
+  color: var(--green);
+  font-size: 14px;
+  margin-bottom: 10px;
+  letter-spacing: 2px;
+}
+.join-desc {
+  color: var(--text-dim);
+  font-size: 8px;
+  margin-bottom: 14px;
+  line-height: 1.8;
+}
+.join-section {
+  margin-bottom: 12px;
+}
+.join-label {
+  color: var(--green-dim);
+  font-size: 8px;
+  margin-bottom: 6px;
+  letter-spacing: 1px;
+}
+.join-code {
+  display: block;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  padding: 8px 12px;
+  font-family: 'Press Start 2P', monospace;
+  font-size: 8px;
+  color: var(--green);
+  word-break: break-all;
+  border-radius: 4px;
+}
+.join-cmd {
+  font-size: 7px;
+  color: var(--text);
+}
+.join-cmd code { color: var(--green); }
+.join-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.join-step {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 8px;
+  color: var(--text);
+}
+.join-step code {
+  color: var(--green);
+  background: var(--surface2);
+  padding: 2px 6px;
+  border-radius: 3px;
+}
+.step-num {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  background: var(--green-dark);
+  border: 1px solid var(--green-dim);
+  border-radius: 50%;
+  color: var(--green);
+  font-size: 8px;
+  flex-shrink: 0;
+}
+.join-meta {
+  display: flex;
+  gap: 20px;
+  font-size: 7px;
+  color: var(--text-dim);
+  margin-top: 10px;
+}
+.join-meta strong {
+  color: var(--text);
+}
+
 @media (max-width: 1000px) {
   .agent-col { width: 220px; }
   .tagline { display: none; }

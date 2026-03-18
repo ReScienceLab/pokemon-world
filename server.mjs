@@ -1,6 +1,11 @@
 /**
  * Pokemon Battle Arena — DAP World Agent
- * Gen random battles powered by @pkmn/sim, integrated with the DAP network.
+ *
+ * Programmatic world with arena-style matchmaking:
+ *   - First agent to join becomes the champion
+ *   - Second agent becomes the challenger; battle starts automatically
+ *   - Winner stays as champion; loser is evicted
+ *   - When no agents are present, runs AI-vs-AI demo battles
  *
  * Run: WORLD_ID=pokemon-arena PEER_PORT=9099 DATA_DIR=/tmp/pokemon-world node server.mjs
  * Open: http://localhost:9099/
@@ -24,6 +29,7 @@ const DATA_DIR = process.env.DATA_DIR ?? "/tmp/pokemon-demo"
 const TEAM_SIZE = parseInt(process.env.TEAM_SIZE ?? "3")
 const GEN = parseInt(process.env.GEN ?? "5")
 const FORMAT = `gen${GEN}randombattle`
+const TURN_TIMEOUT_MS = parseInt(process.env.TURN_TIMEOUT_MS ?? "30000")
 const TURN_DELAY = parseInt(process.env.TURN_DELAY ?? "3000")
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 
@@ -54,22 +60,23 @@ function getEffectiveness(moveType, defTypes) {
 }
 
 // ---------------------------------------------------------------------------
-// DemoBattle — two AI agents with visible thinking
+// Battle — @pkmn/sim wrapper with AI thinking
 // ---------------------------------------------------------------------------
-class DemoBattle {
-  constructor() {
+class Battle {
+  constructor(p1Name = "Agent Alpha", p2Name = "Agent Beta") {
     this.battleId = crypto.randomUUID()
     this.battleOver = false
     this.winner = null
+    this.winnerSide = null
     this.turn = 0
     this.log = []
     this.protocolLog = []
     this.thinking = { p1: [], p2: [] }
     this.lastChoice = { p1: null, p2: null }
-    this.p1 = { name: "Agent Alpha", alias: "Alpha", team: null, request: null, active: null }
-    this.p2 = { name: "Agent Beta", alias: "Beta", team: null, request: null, active: null }
+    this.pendingActions = { p1: null, p2: null }
+    this.p1 = { name: p1Name, team: null, request: null }
+    this.p2 = { name: p2Name, team: null, request: null }
     this.startedAt = Date.now()
-    this.autoRunning = false
     this._initBattle()
   }
 
@@ -110,10 +117,12 @@ class DemoBattle {
             player.request = JSON.parse(line.slice(9))
           } else if (line.startsWith("|win|")) {
             this.winner = line.slice(5)
+            this.winnerSide = this.winner === this.p1.name ? "p1" : "p2"
             this.battleOver = true
             this.log.push({ turn: this.turn, text: `Battle over! Winner: ${this.winner}`, type: "win" })
           } else if (line === "|tie" || line.startsWith("|tie|")) {
             this.winner = "tie"
+            this.winnerSide = null
             this.battleOver = true
             this.log.push({ turn: this.turn, text: "Battle ended in a tie!", type: "win" })
           } else if (line.startsWith("|turn|")) {
@@ -149,7 +158,7 @@ class DemoBattle {
     }
   }
 
-  _parseState(side) {
+  parseState(side) {
     const player = this[side]
     const req = player.request
     if (!req) return { active: null, team: [], moves: [], mustSwitch: false }
@@ -177,10 +186,10 @@ class DemoBattle {
     }
   }
 
-  _think(side) {
-    const state = this._parseState(side)
+  aiThink(side) {
+    const state = this.parseState(side)
     const oppSide = side === "p1" ? "p2" : "p1"
-    const oppState = this._parseState(oppSide)
+    const oppState = this.parseState(oppSide)
     const thoughts = []
     let choice = null
 
@@ -258,51 +267,37 @@ class DemoBattle {
     return { choice, thoughts }
   }
 
-  async playTurn() {
-    if (this.battleOver) return false
-    await new Promise(r => setTimeout(r, 200))
-    for (const side of ["p1", "p2"]) {
-      const player = this[side]
-      if (!player.request || player.request.wait) continue
-      const { choice, thoughts } = this._think(side)
-      this.thinking[side] = thoughts
-      this.lastChoice[side] = choice
-      if (choice) {
-        this.allStreams[side].write(choice)
-        player.request = null
-      }
-    }
-    await new Promise(r => setTimeout(r, 300))
-    return !this.battleOver
+  submitChoice(side, choiceStr) {
+    const player = this[side]
+    if (!player.request || player.request.wait || this.battleOver) return false
+    this.lastChoice[side] = choiceStr
+    this.allStreams[side].write(choiceStr)
+    player.request = null
+    return true
   }
 
-  async autoPlay() {
-    if (this.autoRunning) return
-    this.autoRunning = true
-    await new Promise(r => setTimeout(r, 500))
-    while (!this.battleOver) {
-      await this.playTurn()
-      await new Promise(r => setTimeout(r, TURN_DELAY))
-    }
-    this.autoRunning = false
+  needsInput(side) {
+    const player = this[side]
+    return !this.battleOver && player.request && !player.request.wait
   }
 
   getFullState() {
     return {
-      battleId: this.battleId, turn: this.turn, battleOver: this.battleOver, winner: this.winner,
+      battleId: this.battleId, turn: this.turn, battleOver: this.battleOver,
+      winner: this.winner, winnerSide: this.winnerSide,
       p1: {
         name: this.p1.name,
-        team: this._parseState("p1").team,
-        active: this._parseState("p1").active,
-        moves: this._parseState("p1").moves,
+        team: this.parseState("p1").team,
+        active: this.parseState("p1").active,
+        moves: this.parseState("p1").moves,
         choice: this.lastChoice.p1,
         thinking: this.thinking.p1,
       },
       p2: {
         name: this.p2.name,
-        team: this._parseState("p2").team,
-        active: this._parseState("p2").active,
-        moves: this._parseState("p2").moves,
+        team: this.parseState("p2").team,
+        active: this.parseState("p2").active,
+        moves: this.parseState("p2").moves,
         choice: this.lastChoice.p2,
         thinking: this.thinking.p2,
       },
@@ -313,38 +308,309 @@ class DemoBattle {
 }
 
 // ---------------------------------------------------------------------------
-// DAP World Server (via agent-world-sdk)
+// ArenaManager — state machine for champion/challenger matchmaking
+// ---------------------------------------------------------------------------
+// States: idle, waiting, battle, battleOver
+class ArenaManager {
+  constructor({ onEvict }) {
+    this.phase = "idle"
+    this.mode = "demo"
+    this.champion = null       // { agentId, side: "p1" }
+    this.challenger = null     // { agentId, side: "p2" }
+    this.battle = null
+    this.turnTimer = null
+    this.stats = { totalBattles: 0, wins: {} }
+    this.onEvict = onEvict
+    this._startDemo()
+  }
+
+  _startDemo() {
+    this.mode = "demo"
+    this.phase = "idle"
+    this.champion = null
+    this.challenger = null
+    this.battle = new Battle("Agent Alpha (AI)", "Agent Beta (AI)")
+    this._runDemoLoop()
+  }
+
+  async _runDemoLoop() {
+    await new Promise(r => setTimeout(r, 500))
+    while (this.mode === "demo" && !this.battle.battleOver) {
+      await new Promise(r => setTimeout(r, 200))
+      for (const side of ["p1", "p2"]) {
+        if (!this.battle.needsInput(side)) continue
+        const { choice, thoughts } = this.battle.aiThink(side)
+        this.battle.thinking[side] = thoughts
+        if (choice) this.battle.submitChoice(side, choice)
+      }
+      await new Promise(r => setTimeout(r, TURN_DELAY))
+    }
+    if (this.mode === "demo") {
+      await new Promise(r => setTimeout(r, 5000))
+      if (this.mode === "demo") {
+        this.battle = new Battle("Agent Alpha (AI)", "Agent Beta (AI)")
+        this._runDemoLoop()
+      }
+    }
+  }
+
+  join(agentId) {
+    if (this.champion?.agentId === agentId || this.challenger?.agentId === agentId) {
+      return { error: "Already in arena" }
+    }
+
+    if (this.mode === "demo" || this.phase === "idle") {
+      this.mode = "live"
+      this.phase = "waiting"
+      this.champion = { agentId, side: "p1" }
+      this.challenger = null
+      this.battle = null
+      const tag = agentId.slice(0, 12)
+      console.log(`[arena] ${tag} joined as champion — waiting for challenger`)
+      return { ok: true, role: "champion", phase: this.phase }
+    }
+
+    if (this.phase === "waiting" && !this.challenger) {
+      this.challenger = { agentId, side: "p2" }
+      this._startBattle()
+      const tag = agentId.slice(0, 12)
+      console.log(`[arena] ${tag} joined as challenger — battle starting`)
+      return { ok: true, role: "challenger", phase: this.phase }
+    }
+
+    return { error: "Arena is full — battle in progress" }
+  }
+
+  _startBattle() {
+    this.phase = "battle"
+    this.stats.totalBattles++
+    const champName = `Champion (${this.champion.agentId.slice(0, 8)})`
+    const challName = `Challenger (${this.challenger.agentId.slice(0, 8)})`
+    this.battle = new Battle(champName, challName)
+    console.log(`[arena] Battle #${this.stats.totalBattles} started: ${this.battle.battleId.slice(0, 8)}`)
+    this._waitForInputs()
+  }
+
+  async _waitForInputs() {
+    await new Promise(r => setTimeout(r, 500))
+    while (this.mode === "live" && this.phase === "battle" && !this.battle.battleOver) {
+      const needsP1 = this.battle.needsInput("p1")
+      const needsP2 = this.battle.needsInput("p2")
+      if (!needsP1 && !needsP2) {
+        await new Promise(r => setTimeout(r, 200))
+        continue
+      }
+      // Start turn timeout — wait for agent actions or auto-fill with AI
+      const deadline = Date.now() + TURN_TIMEOUT_MS
+      while (Date.now() < deadline && this.phase === "battle") {
+        const stillNeedsP1 = this.battle.needsInput("p1") && !this.battle.pendingActions.p1
+        const stillNeedsP2 = this.battle.needsInput("p2") && !this.battle.pendingActions.p2
+        if (!stillNeedsP1 && !stillNeedsP2) break
+        await new Promise(r => setTimeout(r, 200))
+      }
+      // Apply pending actions or AI fallback
+      for (const side of ["p1", "p2"]) {
+        if (!this.battle.needsInput(side)) continue
+        if (this.battle.pendingActions[side]) {
+          this.battle.submitChoice(side, this.battle.pendingActions[side])
+          this.battle.pendingActions[side] = null
+        } else {
+          const { choice, thoughts } = this.battle.aiThink(side)
+          this.battle.thinking[side] = [...thoughts, "(AI auto-move — agent timed out)"]
+          if (choice) this.battle.submitChoice(side, choice)
+        }
+      }
+      await new Promise(r => setTimeout(r, 500))
+    }
+    if (this.phase === "battle" && this.battle.battleOver) {
+      this._onBattleEnd()
+    }
+  }
+
+  _onBattleEnd() {
+    this.phase = "battleOver"
+    const ws = this.battle.winnerSide
+    if (ws && ws === "p1" && this.champion) {
+      // Champion wins — evict challenger
+      const loserId = this.challenger?.agentId
+      this.stats.wins[this.champion.agentId] = (this.stats.wins[this.champion.agentId] || 0) + 1
+      this.challenger = null
+      this.phase = "waiting"
+      console.log(`[arena] Champion wins! Waiting for next challenger`)
+      if (loserId) this.onEvict(loserId, "loser")
+    } else if (ws && ws === "p2" && this.challenger) {
+      // Challenger wins — becomes new champion
+      const loserId = this.champion?.agentId
+      this.stats.wins[this.challenger.agentId] = (this.stats.wins[this.challenger.agentId] || 0) + 1
+      this.champion = { agentId: this.challenger.agentId, side: "p1" }
+      this.challenger = null
+      this.phase = "waiting"
+      console.log(`[arena] Challenger wins! New champion: ${this.champion.agentId.slice(0, 8)}`)
+      if (loserId) this.onEvict(loserId, "loser")
+    } else {
+      // Tie or unknown — evict both, reset
+      const ids = [this.champion?.agentId, this.challenger?.agentId].filter(Boolean)
+      this.champion = null
+      this.challenger = null
+      this.phase = "idle"
+      console.log(`[arena] Tie — arena reset`)
+      for (const id of ids) this.onEvict(id, "tie")
+    }
+
+    // If no one left, restart demo after delay
+    if (!this.champion && !this.challenger) {
+      setTimeout(() => {
+        if (this.phase === "idle" && !this.champion) this._startDemo()
+      }, 3000)
+    }
+  }
+
+  submitAction(agentId, action, params) {
+    if (this.phase !== "battle" || !this.battle || this.battle.battleOver) {
+      return { error: "No active battle" }
+    }
+    const side = this.champion?.agentId === agentId ? "p1"
+               : this.challenger?.agentId === agentId ? "p2"
+               : null
+    if (!side) return { error: "Agent not in battle" }
+    if (!this.battle.needsInput(side)) return { error: "Not your turn or already submitted" }
+
+    let choiceStr
+    if (action === "move") {
+      const slot = parseInt(params?.slot)
+      if (!slot || slot < 1 || slot > 4) return { error: "Invalid move slot (1-4)" }
+      choiceStr = `move ${slot}`
+    } else if (action === "switch") {
+      const slot = parseInt(params?.slot)
+      if (!slot || slot < 1 || slot > TEAM_SIZE) return { error: `Invalid switch slot (1-${TEAM_SIZE})` }
+      choiceStr = `switch ${slot}`
+    } else {
+      return { error: `Unknown action: ${action}` }
+    }
+
+    this.battle.pendingActions[side] = choiceStr
+    return { ok: true, action, side }
+  }
+
+  leave(agentId) {
+    if (this.champion?.agentId === agentId) {
+      this.champion = null
+      if (this.phase === "battle") {
+        // Forfeit — challenger wins
+        this.battle.battleOver = true
+        this.battle.winner = this.battle.p2.name
+        this.battle.winnerSide = "p2"
+        this._onBattleEnd()
+      } else {
+        if (this.challenger) {
+          this.champion = { agentId: this.challenger.agentId, side: "p1" }
+          this.challenger = null
+          this.phase = "waiting"
+        } else {
+          this.phase = "idle"
+          setTimeout(() => { if (this.phase === "idle") this._startDemo() }, 3000)
+        }
+      }
+    } else if (this.challenger?.agentId === agentId) {
+      this.challenger = null
+      if (this.phase === "battle") {
+        this.battle.battleOver = true
+        this.battle.winner = this.battle.p1.name
+        this.battle.winnerSide = "p1"
+        this._onBattleEnd()
+      } else {
+        // Just left the queue
+      }
+    }
+  }
+
+  getState() {
+    return {
+      phase: this.phase,
+      mode: this.mode,
+      champion: this.champion ? { agentId: this.champion.agentId } : null,
+      challenger: this.challenger ? { agentId: this.challenger.agentId } : null,
+      battle: this.battle?.getFullState() ?? null,
+      stats: this.stats,
+    }
+  }
+
+  getAgentView(agentId) {
+    const state = this.getState()
+    if (!this.battle) return state
+    const side = this.champion?.agentId === agentId ? "p1"
+               : this.challenger?.agentId === agentId ? "p2"
+               : null
+    if (side) {
+      state.yourSide = side
+      state.yourTeam = this.battle.parseState(side)
+      state.needsInput = this.battle.needsInput(side)
+    }
+    return state
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Manifest & World Server
 // ---------------------------------------------------------------------------
 
 fs.mkdirSync(DATA_DIR, { recursive: true })
-let currentDemo = null
 
 const POKEMON_MANIFEST = {
   name: WORLD_NAME,
+  type: "programmatic",
   theme: "pokemon-battle",
-  description: "Gen random Pokemon battle arena. Watch two AI agents battle it out.",
-  objective: "Watch the battle unfold. No player actions required — battles are fully automated.",
+  description: `Gen ${GEN} random Pokemon battle arena. Two agents battle in arena-style matches.`,
+  objective: "Challenge the champion! Win to become the new champion and defend your title.",
   rules: [
-    "Each battle is a random-team match between Agent Alpha and Agent Beta.",
-    "Agents reason about type matchups, STAB, and HP to choose moves.",
-    "The battle ends when all Pokemon on one side faint.",
+    { id: "random-teams", text: "Teams are randomly generated from the format pool.", enforced: true },
+    { id: "arena-style", text: "Winner stays as champion; loser is evicted.", enforced: true },
+    { id: "turn-timeout", text: `Each turn has a ${TURN_TIMEOUT_MS / 1000}s timeout. AI fills in on timeout.`, enforced: true },
+    { id: "no-team-choice", text: "You cannot choose your team — it is randomly assigned.", enforced: true },
   ],
-  actions: {},
+  actions: {
+    move: {
+      desc: "Use a move from your active Pokemon",
+      params: { slot: { type: "number", required: true, desc: "Move slot 1-4", min: 1, max: 4 } },
+      phase: ["battle"],
+    },
+    switch: {
+      desc: "Switch to a different Pokemon on your team",
+      params: { slot: { type: "number", required: true, desc: "Team slot to switch to", min: 1, max: TEAM_SIZE } },
+      phase: ["battle"],
+    },
+  },
+  lifecycle: {
+    matchmaking: "arena",
+    evictionPolicy: "loser-leaves",
+    turnTimeoutMs: TURN_TIMEOUT_MS,
+    turnTimeoutAction: "default-move",
+  },
   state_fields: [
-    "battleId — unique battle identifier",
-    "turn — current turn number",
-    "p1/p2 — team states with HP, moves, and AI thinking",
-    "log — recent battle events",
-    "battleOver — true when the battle has ended",
-    "winner — the winner when battleOver is true",
+    "phase — arena phase: idle, waiting, battle, battleOver",
+    "mode — demo (AI vs AI) or live (real agents)",
+    "champion — current champion agentId",
+    "challenger — current challenger agentId",
+    "battle — full battle state with teams, moves, log",
+    "stats — total battles and win counts",
   ],
 }
+
+const evictedAgents = new Set()
+
+const arena = new ArenaManager({
+  onEvict(agentId, reason) {
+    evictedAgents.add(agentId)
+    console.log(`[arena] Evicting ${agentId.slice(0, 8)} (${reason})`)
+  },
+})
 
 const server = await createWorldServer(
   {
     worldId: WORLD_ID,
     worldName: WORLD_NAME,
     worldTheme: "pokemon-battle",
+    worldType: "programmatic",
     port: PORT,
     publicPort: parseInt(process.env.PUBLIC_PORT ?? String(PORT)),
     publicAddr: process.env.PUBLIC_ADDR ?? null,
@@ -368,43 +634,48 @@ const server = await createWorldServer(
         const css = fs.readFileSync(path.join(webDir, "demo.css"), "utf8")
         return reply.type("text/css").send(css)
       })
-      fastify.post("/demo/start", async () => {
-        currentDemo = new DemoBattle()
-        await new Promise(r => setTimeout(r, 500))
-        currentDemo.autoPlay()
-        return { ok: true, battleId: currentDemo.battleId }
+      fastify.get("/arena/state", async () => {
+        return { ok: true, ...arena.getState() }
       })
-      fastify.get("/demo/state", async () => {
-        if (!currentDemo) return { ok: false, error: "No demo running. POST /demo/start first." }
-        return { ok: true, ...currentDemo.getFullState() }
-      })
-      fastify.post("/demo/restart", async () => {
-        currentDemo = new DemoBattle()
-        await new Promise(r => setTimeout(r, 500))
-        currentDemo.autoPlay()
-        return { ok: true, battleId: currentDemo.battleId }
+      fastify.get("/arena/info", async () => {
+        const ping = await fetch(`http://localhost:${PORT}/peer/ping`).then(r => r.json())
+        return {
+          ok: true,
+          worldId: WORLD_ID,
+          worldName: WORLD_NAME,
+          agentId: ping.agentId,
+          port: PORT,
+          format: FORMAT,
+          teamSize: TEAM_SIZE,
+          turnTimeoutMs: TURN_TIMEOUT_MS,
+          maxAgents: 2,
+        }
       })
     },
   },
   {
-    async onJoin(_agentId, _data) {
-      return { manifest: POKEMON_MANIFEST, state: currentDemo?.getFullState() ?? null }
+    async onJoin(agentId, _data) {
+      const result = arena.join(agentId)
+      return {
+        manifest: POKEMON_MANIFEST,
+        state: { ...result, ...arena.getAgentView(agentId) },
+      }
     },
-    async onAction(_agentId, _data) {
-      // Battle is fully automated — no player actions
-      return { ok: true, state: currentDemo?.getFullState() ?? null }
+    async onAction(agentId, data) {
+      const action = data.action
+      const params = data.params ?? data
+      const result = arena.submitAction(agentId, action, params)
+      return { ok: !result.error, state: { ...result, ...arena.getAgentView(agentId) } }
     },
-    async onLeave(_agentId) {},
+    async onLeave(agentId) {
+      arena.leave(agentId)
+    },
     getState() {
-      return currentDemo?.getFullState() ?? { ok: false, error: "No battle running" }
+      return arena.getState()
     },
   }
 )
 
-// Auto-start initial battle
-currentDemo = new DemoBattle()
-await new Promise(r => setTimeout(r, 500))
-currentDemo.autoPlay()
-console.log(`[demo] Pokemon Battle Demo on http://localhost:${PORT}/`)
-console.log(`[demo] Turn delay: ${TURN_DELAY}ms, team size: ${TEAM_SIZE}`)
-console.log(`[demo] Auto-battle started: ${currentDemo.battleId.slice(0, 8)}`)
+console.log(`[arena] Pokemon Battle Arena on http://localhost:${PORT}/`)
+console.log(`[arena] Format: ${FORMAT}, team size: ${TEAM_SIZE}, turn timeout: ${TURN_TIMEOUT_MS / 1000}s`)
+console.log(`[arena] Mode: demo (AI vs AI) — waiting for real agents to join`)

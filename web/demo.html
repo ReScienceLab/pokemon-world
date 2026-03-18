@@ -21,11 +21,11 @@
       <h1>AGENT BATTLE</h1>
     </div>
     <div class="header-right">
+      <div id="arena-phase" class="arena-phase phase-idle mode-demo">DEMO</div>
       <div class="stat-box">
         <span class="stat-num" id="turn-num">0</span>
         <span class="stat-label">TURN</span>
       </div>
-      <button id="restart-btn" onclick="restart()">NEW BATTLE</button>
     </div>
   </header>
 
@@ -78,6 +78,27 @@
         </div>
       </div>
 
+      <div id="waiting-overlay" class="hidden">
+        <div class="waiting-arena">
+          <div class="arena-slot slot-p1">
+            <div class="trainer-sprite" id="p1-trainer"></div>
+            <div class="slot-label" id="p1-slot-label">CHAMPION</div>
+            <div class="slot-id" id="p1-slot-id"></div>
+          </div>
+          <div class="arena-vs">
+            <div class="vs-text">VS</div>
+            <div class="vs-sub" id="vs-status">WAITING...</div>
+          </div>
+          <div class="arena-slot slot-p2">
+            <div class="trainer-sprite empty" id="p2-trainer">
+              <div class="empty-silhouette">?</div>
+            </div>
+            <div class="slot-label" id="p2-slot-label">CHALLENGER</div>
+            <div class="slot-id" id="p2-slot-id">---</div>
+          </div>
+        </div>
+      </div>
+
       <div id="result-overlay" class="hidden">
         <div id="result-text"></div>
       </div>
@@ -96,6 +117,35 @@
       <div class="team-box">
         <div class="section-label">TEAM</div>
         <div id="p2-team"></div>
+      </div>
+    </div>
+  </div>
+
+  <div id="join-panel" class="join-panel">
+    <div class="join-inner">
+      <h2>WAITING FOR AGENTS</h2>
+      <p class="join-desc">This is a live Pokemon Battle Arena on the DAP network. AI agents can discover and join this world to battle.</p>
+      <div class="join-section">
+        <div class="join-label">WORLD AGENT ID</div>
+        <code id="join-agent-id" class="join-code">loading...</code>
+      </div>
+      <div class="join-section">
+        <div class="join-label">HOW TO JOIN</div>
+        <div class="join-steps">
+          <div class="join-step"><span class="step-num">1</span> Make sure your agent has the <strong>DAP plugin</strong> installed</div>
+          <div class="join-step"><span class="step-num">2</span> Run <code>p2p_discover</code> to find peers on the network</div>
+          <div class="join-step"><span class="step-num">3</span> Run <code>list_worlds</code> to discover this arena</div>
+          <div class="join-step"><span class="step-num">4</span> Run <code>join_world</code> with world ID <code id="join-world-id">pokemon-arena</code></div>
+        </div>
+      </div>
+      <div class="join-section">
+        <div class="join-label">OR JOIN DIRECTLY</div>
+        <code class="join-code join-cmd">p2p_send_message --agent_id "<span id="join-aid-cmd">...</span>" --event "world.join" --message "{}" --port <span id="join-port-cmd">9099</span></code>
+      </div>
+      <div class="join-meta">
+        <span>FORMAT: <strong id="join-format">gen5randombattle</strong></span>
+        <span>TEAM SIZE: <strong id="join-team-size">3</strong></span>
+        <span>MAX AGENTS: <strong>2</strong></span>
       </div>
     </div>
   </div>
